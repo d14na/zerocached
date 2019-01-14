@@ -252,10 +252,12 @@ contract ZeroCache is Owned {
      //how much of the offchain sig approval has been 'drained' or used up
      /* mapping (address => mapping (bytes32 => uint)) public signatureApprovalDrained; //mapping of user accounts to mapping of order hashes to uints (amount of order that has been filled) */
 
-
-    // deprecated
-    mapping(bytes32 => uint256) burnedSignatures;
-
+    /**
+     * Expired Signatures
+     *
+     * All expired signature flags.
+     */
+    mapping(bytes32 => bool) expiredSignatures;
 
     event Deposit(
         address indexed token,
@@ -304,6 +306,17 @@ contract ZeroCache is Owned {
             abi.encodePacked(msg.sender, '.has.auth.for.cache'))) == true);
 
         _;      // function code is inserted here
+    }
+
+    /***************************************************************************
+     *
+     * Get the token balance for account `tokenOwner`
+     */
+    function balanceOf(
+        address _token,
+        address _owner
+    ) public constant returns (uint) {
+        return balances[_token][_owner];
     }
 
     // send Ether into this method, it gets wrapped and then deposited in this contract as a token balance assigned to the sender
@@ -408,28 +421,49 @@ contract ZeroCache is Owned {
         return true;
     }
 
-    function withdraw(address _token, uint _tokens) public returns (bool) {
-        if (balances[_token][msg.sender] < _tokens) revert();
-
-        balances[_token][msg.sender] = balances[_token][msg.sender].sub(_tokens);
-
-        ERC20Interface(_token).transfer(msg.sender, _tokens);
-
-        emit Withdraw(_token, msg.sender, _tokens);
-
-        return true;
+    /**
+     * Withdraw (public)
+     */
+    function withdraw(
+        address _token,
+        uint _tokens
+    ) external returns (bool success) {
+        return _withdraw(msg.sender, _token, _tokens);
     }
 
-
-    /***************************************************************************
-     *
-     * Get the token balance for account `tokenOwner`
+    /**
+     * Withdraw (admin)
      */
-    function balanceOf(
+    function withdraw(
+        address _owner,
         address _token,
-        address _owner
-    ) public constant returns (uint) {
-        return balances[_token][_owner];
+        uint _tokens
+    ) onlyAuthBy0Admin external returns (bool success) {
+        return _withdraw(_owner, _token, _tokens);
+    }
+
+    /**
+     * Withdraw (internal)
+     */
+    function _withdraw(
+        address _owner,
+        address _token,
+        uint _tokens
+    ) private returns (bool success) {
+        /* Validate available balance. */
+        if (balances[_token][_owner] < _tokens) revert();
+
+        /* Decrease owner's balanc by token amount. */
+        balances[_token][_owner] = balances[_token][_owner].sub(_tokens);
+
+        /* Transfer requested tokens to owner. */
+        ERC20Interface(_token).transfer(_owner, _tokens);
+
+        /* Record to event log. */
+        emit Withdraw(_token, _owner, _tokens);
+
+        /* Return success. */
+        return true;
     }
 
     /**
@@ -439,21 +473,84 @@ contract ZeroCache is Owned {
      * to the receiver's account.
      */
     function transfer(
-        address _from,
+        address _receiver,
+        address _token,
+        uint _tokens
+    ) public returns (bool success) {
+        return _transfer(msg.sender, _receiver, _token, _tokens);
+    }
+
+    /**
+     * Transfer
+     *
+     * Transfers the "specified" ERC-20 tokens held by the sender
+     * to the receiver's account.
+     */
+    function _transfer(
+        address _sender,
+        address _receiver,
         address _token,
         uint _tokens
     ) public returns (bool success) {
         /* Remove the transfer value from sender's balance. */
-        balances[_token][msg.sender] = balances[_token][msg.sender].sub(_tokens);
+        balances[_token][_sender] = balances[_token][_sender].sub(_tokens);
 
         /* Add the transfer value to the receiver's balance. */
-        balances[_token][_from] = balances[_token][_from].add(_tokens);
+        balances[_token][_receiver] = balances[_token][_receiver].add(_tokens);
 
         /* Report the transfer. */
-        emit Transfer(_token, msg.sender, _from, _tokens);
+        emit Transfer(_token, _sender, _receiver, _tokens);
 
         /* Return success. */
         return true;
+    }
+
+    /**
+     * Signature Transfer
+     *
+     * Allows transfer without approval as long as you get an EC signature.
+     */
+    function sigTransfer(
+        address _from,
+        address _to,
+        uint256 _tokens,
+        address _token,
+        uint256 _expires,
+        uint256 _nonce,
+        bytes _signature
+    ) public returns (bool) {
+        /* Calculate the signature hash. */
+        // bytes32 packed = sha3("\x19Ethereum Signed Message:\n32", this, _from, _to, _token, _tokens, _expires, _nonce);
+        bytes32 sigHash = keccak256(abi.encodePacked(
+            "\x19Ethereum Signed Message:\n32",
+            address(this),
+            _from,
+            _to,
+            _token,
+            _tokens,
+            _expires,
+            _nonce
+        ));
+
+        address authorizedAccount = ECRecovery.recover(sigHash, _signature);
+
+        // make sure the signer is the depositor of the tokens
+        if (_from != authorizedAccount) revert();
+
+        // make sure the signature has not expired
+        if (block.number > _expires) revert();
+
+        bool isExpired = expiredSignatures[sigHash];
+        expiredSignatures[sigHash] = true;
+
+        if (isExpired) revert();
+
+        // allowed[token][from][to] = tokens;
+        // Approval(from, token, to, tokens);
+
+        // it can be requested that fewer tokens be sent that were approved
+        // -- the whole approval will be invalidated though
+        return _transfer(_from, _to, _token, _tokens);
     }
 
     /**
