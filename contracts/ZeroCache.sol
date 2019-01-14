@@ -307,12 +307,12 @@ contract ZeroCache is Owned {
     }
 
     // send Ether into this method, it gets wrapped and then deposited in this contract as a token balance assigned to the sender
-    function wrap() public payable {
+    function wrap() public payable returns (bool) {
         /* Forward this payable ether into the wrapping contract. */
-        wethContract.deposit.value(msg.value);
-
-        /* Transfer the tokens from the wrapping contract to here. */
-        // wethContract.transfer(address(this), msg.value);
+        bool success = address(wethContract).call
+            .gas(200000)
+            .value(msg.value)
+            (abi.encodeWithSignature("deposit()"));
 
         /* Increase WETH balance by sent value. */
         balances[address(wethContract)][msg.sender] = balances[address(wethContract)][msg.sender].add(msg.value);
@@ -322,31 +322,21 @@ contract ZeroCache is Owned {
 
         /* Record to event log. */
         emit Deposit(address(wethContract), msg.sender, msg.value, data);
+
+        return success;
     }
 
-    function test(uint _tokens) public {
-        wethContract.deposit.value(_tokens);
-    }
-    function test2(uint _tokens) payable public {
-        wethContract.deposit.value(_tokens);
-    }
-    function test3(uint _tokens) public {
-        // wethContract.transfer(address(this), _tokens);
-        address(wethContract).call.gas(200000).value(_tokens);
-    }
-    function test4(uint _tokens) payable public {
-        wethContract.deposit.gas(200000).value(_tokens);
-    }
-    function test5(uint _tokens) payable public returns (bool) {
-        return address(wethContract).call.gas(1000000).value(_tokens)(abi.encodeWithSignature("deposit()"));
+    function unwrap(
+        uint256 _tokens
+    ) public returns (bool success) {
+        return _unwrap(msg.sender, _tokens);
     }
 
-    function unwrap(uint256 _tokens) public {
-        _unwrap(msg.sender, _tokens);
-    }
-
-    function unwrap(address _owner, uint256 _tokens) onlyAuthBy0Admin public {
-        _unwrap(_owner, _tokens);
+    function unwrap(
+        address _owner,
+        uint256 _tokens
+    ) onlyAuthBy0Admin public returns (bool success) {
+        return _unwrap(_owner, _tokens);
     }
 
     /**
@@ -355,15 +345,18 @@ contract ZeroCache is Owned {
      * When this contract has control of wrapped eth, this is a way to easily
      * withdraw it as ether if there is any Ether in the contract.
      */
-    function _unwrap(address _owner, uint256 _tokens) private {
+    function _unwrap(address _owner, uint256 _tokens) private returns (bool) {
         /* Decrease WETH balance by sent value. */
         balances[address(wethContract)][_owner] = balances[address(wethContract)][_owner].sub(_tokens);
 
         /* Withdraw ETH from Wrapper contract. */
-        wethContract.withdraw(_tokens);
+        // wethContract.withdraw(_tokens);
+        bool success = address(wethContract).call
+            .gas(200000)
+            (abi.encodeWithSignature("withdraw(uint256)", _tokens));
 
         /* Transfer "unwrapped" Ether (ETH) back to owner. */
-        msg.sender.transfer(_tokens);
+        _owner.transfer(_tokens);
 
         /* Record to event log. */
         emit Withdraw(
@@ -371,6 +364,8 @@ contract ZeroCache is Owned {
             address(_owner),
             _tokens
         );
+
+        return success;
     }
 
 
@@ -465,8 +460,11 @@ contract ZeroCache is Owned {
      * THIS CONTRACT DOES NOT ACCEPT DIRECT ETHER
      */
     function () public payable {
-        /* Cancel this transaction. */
-        revert('Oops! Direct payments are NOT permitted here.');
+        /* Allow incoming ETH from Wrapper Contract. */
+        if (msg.sender != address(wethContract)) {
+            /* Cancel this transaction. */
+            revert('Oops! Direct payments are NOT permitted here.');
+        }
     }
 
     /**
