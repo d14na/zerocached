@@ -5,11 +5,12 @@ pragma solidity ^0.4.25;
  * Copyright (c) 2019 Decentralization Authority MDAO.
  * Released under the MIT License.
  *
- * ZeroCache - (AmTrust) is the very first installment to the experimental
- *             meta-currency/smart wallet contract/daemon powering the
- *             nascent community of Zer0net-sponsored products & services.
+ * ZeroCache - (AmTrust) is the first installment of an experimental
+ *             meta-currency/smart wallet (backed by a federated network of
+ *             contract/daemon nodes) powering the nascent community of
+ *             Zer0net-sponsored products & services.
  *
- * Version 19.1.13
+ * Version 19.1.15
  *
  * https://d14na.org
  * support@d14na.org
@@ -135,7 +136,6 @@ contract Zer0netDbInterface {
 }
 
 
-//wEth interface
 /*******************************************************************************
  *
  * WrapperInterface
@@ -234,29 +234,10 @@ contract ZeroCache is Owned {
     /* Initialize Wrapped ETH contract. */
     WrapperInterface public wethContract;
 
-    /**
-     * In-Use
-     *
-     * Has this cache ever been used by this account?
-     */
-    mapping(address => bool) inUse;
-
-    /**
-     * Balances
-     *
-     * Account balances.
-     */
+    /* Initialize account balances. */
     mapping(address => mapping (address => uint256)) balances;
 
-     //like orderFills in lavadex..
-     //how much of the offchain sig approval has been 'drained' or used up
-     /* mapping (address => mapping (bytes32 => uint)) public signatureApprovalDrained; //mapping of user accounts to mapping of order hashes to uints (amount of order that has been filled) */
-
-    /**
-     * Expired Signatures
-     *
-     * All expired signature flags.
-     */
+    /* Initialize expired signature flags. */
     mapping(bytes32 => bool) expiredSignatures;
 
     event Deposit(
@@ -264,6 +245,12 @@ contract ZeroCache is Owned {
         address owner,
         uint tokens,
         bytes data
+    );
+
+    event Sweep(
+        address indexed token,
+        address owner,
+        uint tokens
     );
 
     event Transfer(
@@ -293,7 +280,7 @@ contract ZeroCache is Owned {
 
         /* Initialize Wrapped ETH contract. */
         // NOTE We hard-code the address here, since it should never change.
-        // wethContract = WrapperInterface(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // MAINNET
+        // wethContract = WrapperInterface(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
         wethContract = WrapperInterface(0xc778417E063141139Fce010982780140Aa0cD5Ab); // ROPSTEN
     }
 
@@ -319,8 +306,38 @@ contract ZeroCache is Owned {
         return balances[_token][_owner];
     }
 
-    // send Ether into this method, it gets wrapped and then deposited in this contract as a token balance assigned to the sender
-    function wrap() public payable returns (bool) {
+    /**
+     * Fallback (default)
+     *
+     * Accepts direct ETH transfers to be wrapped for owner into one of the
+     * canonical Wrapped ETH contracts:
+     *     - Mainnet : 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+     *     - Ropsten : 0xc778417E063141139Fce010982780140Aa0cD5Ab
+     *     - Kovan   : 0xd0A1E359811322d97991E03f863a0C30C2cF029C
+     *     - Rinkeby : 0xc778417E063141139Fce010982780140Aa0cD5Ab
+     * (source https://blog.0xproject.com/canonical-weth-a9aa7d0279dd)
+     */
+    function () public payable {
+        /* DO NOT (re-)wrap incoming ETH from Wrapped ETH contract. */
+        if (msg.sender != address(wethContract)) {
+            _wrap();
+        }
+    }
+
+    /**
+     * Wrap
+     *
+     * Send Ether into this method. It gets wrapped and then deposited
+     * in this contract as a token balance assigned to the sender.
+     */
+    function wrap() public payable returns (bool success) {
+        return _wrap();
+    }
+
+    /**
+     * Wrap (private)
+     */
+    function _wrap() private returns (bool) {
         /* Forward this payable ether into the wrapping contract. */
         bool success = address(wethContract).call
             .gas(200000)
@@ -339,12 +356,18 @@ contract ZeroCache is Owned {
         return success;
     }
 
+    /**
+     * Unwrap
+     */
     function unwrap(
         uint256 _tokens
     ) public returns (bool success) {
         return _unwrap(msg.sender, _tokens);
     }
 
+    /**
+     * Unwrap (Administrators ONLY)
+     */
     function unwrap(
         address _owner,
         uint256 _tokens
@@ -353,17 +376,19 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * Unwrap
+     * Unwrap (private)
      *
      * When this contract has control of wrapped eth, this is a way to easily
      * withdraw it as ether if there is any Ether in the contract.
      */
-    function _unwrap(address _owner, uint256 _tokens) private returns (bool) {
+    function _unwrap(
+        address _owner,
+        uint256 _tokens
+    ) private returns (bool) {
         /* Decrease WETH balance by sent value. */
         balances[address(wethContract)][_owner] = balances[address(wethContract)][_owner].sub(_tokens);
 
         /* Withdraw ETH from Wrapper contract. */
-        // wethContract.withdraw(_tokens);
         bool success = address(wethContract).call
             .gas(200000)
             (abi.encodeWithSignature("withdraw(uint256)", _tokens));
@@ -381,6 +406,23 @@ contract ZeroCache is Owned {
         return success;
     }
 
+    /**
+     * Deposit
+     *
+     * Provides support for "manual" token deposits (from either a user
+     * or a previous generation of ZeroCache sweeping its balance).
+     *
+     * NOTE: Required pre-allowance/approval is required in order
+     *       to successfully complete the transfer.
+     */
+    function deposit(
+        address _from,
+        uint _tokens,
+        address _token,
+        bytes _data
+    ) public returns (bool) {
+        return _deposit(_from, _tokens, _token, _data);
+    }
 
     /**
      * Receive Approval
@@ -393,21 +435,21 @@ contract ZeroCache is Owned {
         address _token,
         bytes _data
     ) public returns (bool) {
-        return deposit(_from, _tokens, _token, _data);
+        return _deposit(_from, _tokens, _token, _data);
     }
 
     /**
-     * Deposit
+     * Deposit (private)
      *
      * NOTE: This function requires pre-approval from the token
      *       contract for the amount requested.
      */
-    function deposit(
+    function _deposit(
         address _from,
         uint _tokens,
         address _token,
         bytes _data
-    ) public returns (bool success) {
+    ) private returns (bool success) {
         /* Transfer the ERC-20 tokens into Cache. */
         ERC20Interface(_token).transferFrom(_from, address(this), _tokens);
 
@@ -422,7 +464,7 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * Withdraw (public)
+     * Withdraw
      */
     function withdraw(
         address _token,
@@ -432,7 +474,7 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * Withdraw (admin)
+     * Withdraw (Administrators ONLY)
      */
     function withdraw(
         address _owner,
@@ -443,7 +485,7 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * Withdraw (internal)
+     * Withdraw (private)
      */
     function _withdraw(
         address _owner,
@@ -540,7 +582,7 @@ contract ZeroCache is Owned {
         address _token,
         uint256 _expires,
         uint256 _nonce
-    ) public returns (bool success) {
+    ) external returns (bool success) {
         /* Calculate the signature hash. */
         // bytes32 packed = sha3("\x19Ethereum Signed Message:\n32", this, _from, _to, _token, _tokens, _expires, _nonce);
         bytes32 sigHash = keccak256(abi.encodePacked(
@@ -562,7 +604,7 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * Transfer
+     * Transfer (private)
      *
      * Transfers the "specified" ERC-20 tokens held by the sender
      * to the receiver's account.
@@ -572,7 +614,7 @@ contract ZeroCache is Owned {
         address _receiver,
         address _token,
         uint _tokens
-    ) public returns (bool success) {
+    ) private returns (bool success) {
         /* Remove the transfer value from sender's balance. */
         balances[_token][_sender] = balances[_token][_sender].sub(_tokens);
 
@@ -587,14 +629,58 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * THIS CONTRACT DOES NOT ACCEPT DIRECT ETHER
+     * Sweep
      */
-    function () public payable {
-        /* Allow incoming ETH from Wrapper Contract. */
-        if (msg.sender != address(wethContract)) {
-            /* Cancel this transaction. */
-            revert('Oops! Direct payments are NOT permitted here.');
-        }
+    function sweep(
+        address _token
+    ) external returns (bool success) {
+        return _sweep(msg.sender, _token);
+    }
+
+    /**
+     * Sweep (Administrators ONLY)
+     */
+    function sweep(
+        address _owner,
+        address _token
+    ) onlyAuthBy0Admin external returns (bool success) {
+        return _sweep(_owner, _token);
+    }
+
+    /**
+     * Sweep (private)
+     *
+     * Allows for the full balance transfer of an individual token
+     * from this instance into the latest instance of ZeroCache
+     * (read from the Zer0net Db).
+     */
+    function _sweep(
+        address _owner,
+        address _token
+    ) private returns (bool success) {
+        /* Retrieve available balance. */
+        uint balance = balances[_token][_owner];
+
+        // TODO Pull latest instance address from Zer0net Db
+        // address latestCache = 0x0;
+        address latestCache = address(this); // FOR TESTING PURPOSES ONLY
+
+        // TODO How can we validate that this contract is authentic??
+
+        /* Decrease owner's balance by token amount. */
+        balances[_token][_owner] = balances[_token][_owner].sub(balance);
+
+        /* Initialize empty data (for event log). */
+        bytes memory data;
+
+        /* Transfer requested tokens to latest instance. */
+        ZeroCache(latestCache).deposit(_owner, balance, _token, data);
+
+        /* Record to event log. */
+        emit Sweep(_token, _owner, balance);
+
+        /* Return success. */
+        return true;
     }
 
     /**
