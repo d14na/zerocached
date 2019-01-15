@@ -481,6 +481,87 @@ contract ZeroCache is Owned {
     }
 
     /**
+     * Signature Transfer
+     *
+     * Allows transfer without approval as long as you get an EC signature.
+     */
+    function sigTransfer(
+        address _from,
+        address _to,
+        uint256 _tokens,
+        address _token,
+        uint256 _expires,
+        uint256 _nonce,
+        bytes _signature
+    ) public returns (bool success) {
+        /* Calculate the signature hash. */
+        // bytes32 packed = sha3("\x19Ethereum Signed Message:\n32", this, _from, _to, _token, _tokens, _expires, _nonce);
+        bytes32 sigHash = keccak256(abi.encodePacked(
+            "\x19Ethereum Signed Message:\n32",
+            address(this),
+            _from,
+            _to,
+            _token,
+            _tokens,
+            _expires,
+            _nonce
+        ));
+
+        address authorizedAccount = ECRecovery.recover(sigHash, _signature);
+
+        // make sure the signer is the depositor of the tokens
+        if (_from != authorizedAccount) revert();
+
+        // make sure the signature has not expired
+        if (block.number > _expires) revert();
+
+        /* Retrieve signature expiration. */
+        bool isExpired = expiredSignatures[sigHash];
+
+        /* Set expiration flag. */
+        expiredSignatures[sigHash] = true;
+
+        /* Validate signature expiration. */
+        if (isExpired) revert();
+
+        /* Request token transfer. */
+        return _transfer(_from, _to, _token, _tokens);
+    }
+
+    /**
+     * Cancel Signature Transfer
+     *
+     * Allows an account owner to cancel a previously authorized/signed transfer
+     * request, by invalidating the signature on-chain.
+     */
+    function sigTransferCancel(
+        address _to,
+        uint256 _tokens,
+        address _token,
+        uint256 _expires,
+        uint256 _nonce
+    ) public returns (bool success) {
+        /* Calculate the signature hash. */
+        // bytes32 packed = sha3("\x19Ethereum Signed Message:\n32", this, _from, _to, _token, _tokens, _expires, _nonce);
+        bytes32 sigHash = keccak256(abi.encodePacked(
+            "\x19Ethereum Signed Message:\n32",
+            address(this),
+            msg.sender,
+            _to,
+            _token,
+            _tokens,
+            _expires,
+            _nonce
+        ));
+
+        /* Set expiration flag. */
+        expiredSignatures[sigHash] = true;
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
      * Transfer
      *
      * Transfers the "specified" ERC-20 tokens held by the sender
@@ -503,54 +584,6 @@ contract ZeroCache is Owned {
 
         /* Return success. */
         return true;
-    }
-
-    /**
-     * Signature Transfer
-     *
-     * Allows transfer without approval as long as you get an EC signature.
-     */
-    function sigTransfer(
-        address _from,
-        address _to,
-        uint256 _tokens,
-        address _token,
-        uint256 _expires,
-        uint256 _nonce,
-        bytes _signature
-    ) public returns (bool) {
-        /* Calculate the signature hash. */
-        // bytes32 packed = sha3("\x19Ethereum Signed Message:\n32", this, _from, _to, _token, _tokens, _expires, _nonce);
-        bytes32 sigHash = keccak256(abi.encodePacked(
-            "\x19Ethereum Signed Message:\n32",
-            address(this),
-            _from,
-            _to,
-            _token,
-            _tokens,
-            _expires,
-            _nonce
-        ));
-
-        address authorizedAccount = ECRecovery.recover(sigHash, _signature);
-
-        // make sure the signer is the depositor of the tokens
-        if (_from != authorizedAccount) revert();
-
-        // make sure the signature has not expired
-        if (block.number > _expires) revert();
-
-        bool isExpired = expiredSignatures[sigHash];
-        expiredSignatures[sigHash] = true;
-
-        if (isExpired) revert();
-
-        // allowed[token][from][to] = tokens;
-        // Approval(from, token, to, tokens);
-
-        // it can be requested that fewer tokens be sent that were approved
-        // -- the whole approval will be invalidated though
-        return _transfer(_from, _to, _token, _tokens);
     }
 
     /**
