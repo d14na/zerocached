@@ -661,14 +661,12 @@ contract ZeroCache is Owned {
         /* Retrieve available balance. */
         uint balance = balances[_token][_owner];
 
-        // TODO Pull latest instance address from Zer0net Db
-        // address latestCache = 0x0;
-        address latestCache = address(this); // FOR TESTING PURPOSES ONLY
+        /* Pull latest instance address from Zer0net Db. */
+        address latestCache = zer0netDb.getAddress(
+            keccak256('zerocache.latest'));
 
-        // TODO How can we validate that this contract is authentic??
-
-        /* Decrease owner's balance by token amount. */
-        balances[_token][_owner] = balances[_token][_owner].sub(balance);
+        /* Reduce owner's balance to zero. */
+        balances[_token][_owner] = 0;
 
         /* Initialize empty data (for event log). */
         bytes memory data;
