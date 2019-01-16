@@ -67,7 +67,7 @@ contract ERC20Interface {
  * (borrowed from MiniMeToken)
  */
 contract ApproveAndCallFallBack {
-    function approveAndCall(address spender, uint tokens, bytes data);
+    function approveAndCall(address spender, uint tokens, bytes data) public;
     function receiveApproval(address from, uint256 tokens, address token, bytes data) public;
 }
 
@@ -229,6 +229,12 @@ contract ZeroCache is Owned {
     /* Initialize version name. */
     string public version;
 
+    /* Initialize predecessor contract. */
+    address public predecessor;
+
+    /* Initialize successor contract. */
+    address public successor;
+
     /* Initialize Zer0net Db contract. */
     Zer0netDbInterface public zer0netDb;
 
@@ -274,6 +280,9 @@ contract ZeroCache is Owned {
     constructor() public {
         /* Set the version name. */
         version = 'AmTrust.v1';
+
+        /* Set the predecessor contract. */
+        predecessor = 0x0;
 
         /* Initialize Zer0netDb (eternal) storage database contract. */
         // NOTE We hard-code the address here, since it should never change.
@@ -684,6 +693,21 @@ contract ZeroCache is Owned {
 
         /* Record to event log. */
         emit Sweep(_token, _owner, balance);
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Set Successor
+     *
+     * This is the contract address that replaced this current instnace.
+     */
+    function setSuccessor(
+        address _successor
+    ) onlyAuthBy0Admin external returns (bool success) {
+        /* Set successor account. */
+        successor = _successor;
 
         /* Return success. */
         return true;
