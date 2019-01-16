@@ -67,6 +67,7 @@ contract ERC20Interface {
  * (borrowed from MiniMeToken)
  */
 contract ApproveAndCallFallBack {
+    function approveAndCall(address spender, uint tokens, bytes data);
     function receiveApproval(address from, uint256 tokens, address token, bytes data) public;
 }
 
@@ -302,7 +303,7 @@ contract ZeroCache is Owned {
     function balanceOf(
         address _token,
         address _owner
-    ) public constant returns (uint) {
+    ) external constant returns (uint) {
         return balances[_token][_owner];
     }
 
@@ -330,7 +331,7 @@ contract ZeroCache is Owned {
      * Send Ether into this method. It gets wrapped and then deposited
      * in this contract as a token balance assigned to the sender.
      */
-    function wrap() public payable returns (bool success) {
+    function wrap() external payable returns (bool success) {
         return _wrap();
     }
 
@@ -361,7 +362,7 @@ contract ZeroCache is Owned {
      */
     function unwrap(
         uint256 _tokens
-    ) public returns (bool success) {
+    ) external returns (bool success) {
         return _unwrap(msg.sender, _tokens);
     }
 
@@ -371,7 +372,7 @@ contract ZeroCache is Owned {
     function unwrap(
         address _owner,
         uint256 _tokens
-    ) onlyAuthBy0Admin public returns (bool success) {
+    ) onlyAuthBy0Admin external returns (bool success) {
         return _unwrap(_owner, _tokens);
     }
 
@@ -420,7 +421,7 @@ contract ZeroCache is Owned {
         uint _tokens,
         address _token,
         bytes _data
-    ) public returns (bool) {
+    ) external returns (bool) {
         return _deposit(_from, _tokens, _token, _data);
     }
 
@@ -434,7 +435,7 @@ contract ZeroCache is Owned {
         uint _tokens,
         address _token,
         bytes _data
-    ) public returns (bool) {
+    ) external returns (bool) {
         return _deposit(_from, _tokens, _token, _data);
     }
 
@@ -515,19 +516,20 @@ contract ZeroCache is Owned {
      * to the receiver's account.
      */
     function transfer(
-        address _receiver,
+        address _to,
         address _token,
         uint _tokens
-    ) public returns (bool success) {
-        return _transfer(msg.sender, _receiver, _token, _tokens);
+    ) external returns (bool success) {
+        return _transfer(msg.sender, _to, _token, _tokens);
     }
 
     /**
-     * Signature Transfer
+     * Transfer
      *
-     * Allows transfer without approval as long as you get an EC signature.
+     * NOTE: This transfer requires an off-chain (EC) signature,
+     *       from the account holder, detailing the transaction.
      */
-    function sigTransfer(
+    function transfer(
         address _from,
         address _to,
         uint256 _tokens,
@@ -535,72 +537,36 @@ contract ZeroCache is Owned {
         uint256 _expires,
         uint256 _nonce,
         bytes _signature
-    ) public returns (bool success) {
+    ) external returns (bool success) {
         /* Calculate the signature hash. */
-        // bytes32 packed = sha3("\x19Ethereum Signed Message:\n32", this, _from, _to, _token, _tokens, _expires, _nonce);
         bytes32 sigHash = keccak256(abi.encodePacked(
-            "\x19Ethereum Signed Message:\n32",
-            address(this),
-            _from,
-            _to,
-            _token,
-            _tokens,
-            _expires,
-            _nonce
+            "\x19Ethereum Signed Message:\n224",
+            keccak256(abi.encodePacked(address(this))),
+            keccak256(abi.encodePacked(_from)),
+            keccak256(abi.encodePacked(_to)),
+            keccak256(abi.encodePacked(_token)),
+            keccak256(abi.encodePacked(_tokens)),
+            keccak256(abi.encodePacked(_expires)),
+            keccak256(abi.encodePacked(_nonce))
         ));
 
-        address authorizedAccount = ECRecovery.recover(sigHash, _signature);
-
-        // make sure the signer is the depositor of the tokens
-        if (_from != authorizedAccount) revert();
-
-        // make sure the signature has not expired
+        /* Validate the expiration time. */
         if (block.number > _expires) revert();
 
-        /* Retrieve signature expiration. */
-        bool isExpired = expiredSignatures[sigHash];
+        /* Validate signature expiration. */
+        if (expiredSignatures[sigHash]) revert();
 
         /* Set expiration flag. */
         expiredSignatures[sigHash] = true;
 
-        /* Validate signature expiration. */
-        if (isExpired) revert();
+        /* Retrieve the authorized account (address). */
+        address authorizedAccount = ECRecovery.recover(sigHash, _signature);
+
+        /* Validate the signer matches owner of the tokens. */
+        if (_from != authorizedAccount) revert();
 
         /* Request token transfer. */
         return _transfer(_from, _to, _token, _tokens);
-    }
-
-    /**
-     * Cancel Signature Transfer
-     *
-     * Allows an account owner to cancel a previously authorized/signed transfer
-     * request, by invalidating the signature on-chain.
-     */
-    function sigTransferCancel(
-        address _to,
-        uint256 _tokens,
-        address _token,
-        uint256 _expires,
-        uint256 _nonce
-    ) external returns (bool success) {
-        /* Calculate the signature hash. */
-        // bytes32 packed = sha3("\x19Ethereum Signed Message:\n32", this, _from, _to, _token, _tokens, _expires, _nonce);
-        bytes32 sigHash = keccak256(abi.encodePacked(
-            "\x19Ethereum Signed Message:\n32",
-            address(this),
-            msg.sender,
-            _to,
-            _token,
-            _tokens,
-            _expires,
-            _nonce
-        ));
-
-        /* Set expiration flag. */
-        expiredSignatures[sigHash] = true;
-
-        /* Return success. */
-        return true;
     }
 
     /**
@@ -629,12 +595,45 @@ contract ZeroCache is Owned {
     }
 
     /**
+     * Cancel
+     *
+     * Cancels a previously authorized/signed transfer request,
+     * by invalidating the signature on-chain.
+     */
+    function cancel(
+        address _to,
+        uint256 _tokens,
+        address _token,
+        uint256 _expires,
+        uint256 _nonce
+    ) external returns (bool success) {
+        /* Calculate the signature hash. */
+        bytes32 sigHash = keccak256(abi.encodePacked(
+            "\x19Ethereum Signed Message:\n32",
+            address(this),
+            msg.sender,
+            _to,
+            _token,
+            _tokens,
+            _expires,
+            _nonce
+        ));
+
+        /* Set expiration flag. */
+        expiredSignatures[sigHash] = true;
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
      * Sweep
      */
     function sweep(
-        address _token
+        address _token,
+        bool _preApproved
     ) external returns (bool success) {
-        return _sweep(msg.sender, _token);
+        return _sweep(msg.sender, _token, _preApproved);
     }
 
     /**
@@ -642,9 +641,10 @@ contract ZeroCache is Owned {
      */
     function sweep(
         address _owner,
-        address _token
+        address _token,
+        bool _preApproved
     ) onlyAuthBy0Admin external returns (bool success) {
-        return _sweep(_owner, _token);
+        return _sweep(_owner, _token, _preApproved);
     }
 
     /**
@@ -652,11 +652,13 @@ contract ZeroCache is Owned {
      *
      * Allows for the full balance transfer of an individual token
      * from this instance into the latest instance of ZeroCache
-     * (read from the Zer0net Db).
+     *
+     * NOTE: Account value read from the Zer0net Db `zerocache.latest`.
      */
     function _sweep(
         address _owner,
-        address _token
+        address _token,
+        bool _preApproved
     ) private returns (bool success) {
         /* Retrieve available balance. */
         uint balance = balances[_token][_owner];
@@ -666,13 +668,19 @@ contract ZeroCache is Owned {
             keccak256('zerocache.latest'));
 
         /* Reduce owner's balance to zero. */
-        balances[_token][_owner] = 0;
+        // balances[_token][_owner] = 0;
 
         /* Initialize empty data (for event log). */
         bytes memory data;
 
-        /* Transfer requested tokens to latest instance. */
-        ZeroCache(latestCache).deposit(_owner, balance, _token, data);
+        /* Transfer full balance to owner's account on the latest instance. */
+        if (_preApproved) {
+            ZeroCache(latestCache).deposit(_owner, balance, _token, data);
+        } else {
+            ApproveAndCallFallBack(_token).approveAndCall(_owner, balance, data);
+        }
+
+        // TODO If WETH, must first get allowance.
 
         /* Record to event log. */
         emit Sweep(_token, _owner, balance);
@@ -691,7 +699,7 @@ contract ZeroCache is Owned {
      */
     function transferAnyERC20Token(
         address tokenAddress, uint tokens
-    ) public onlyOwner returns (bool success) {
+    ) external onlyOwner returns (bool success) {
         return ERC20Interface(tokenAddress).transfer(owner, tokens);
     }
 }
