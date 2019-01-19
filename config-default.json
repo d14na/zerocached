@@ -1,0 +1,14 @@
+{
+    "bots": {
+        "auntieAlice": {
+            "address": "",
+            "privateKey": "",
+            "description": ""
+        },
+        "uncleBob": {
+            "address": "",
+            "privateKey": "",
+            "description": ""
+        }
+    }
+}
