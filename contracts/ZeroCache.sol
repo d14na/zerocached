@@ -235,6 +235,12 @@ contract ZeroCache is Owned {
     /* Initialize successor contract. */
     address public successor;
 
+    /* Initialize ZeroGold contract address. */
+    address public zeroGold;
+
+    /* Initialize Boost Fee account. */
+    address public boostFeeAccount;
+
     /* Initialize Zer0net Db contract. */
     Zer0netDbInterface public zer0netDb;
 
@@ -279,7 +285,7 @@ contract ZeroCache is Owned {
      */
     constructor() public {
         /* Set the version name. */
-        version = 'AmTrust.v1';
+        version = 'AmTrust.1';
 
         /* Set the predecessor contract. */
         predecessor = 0x0;
@@ -288,10 +294,18 @@ contract ZeroCache is Owned {
         // NOTE We hard-code the address here, since it should never change.
         zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
 
+        /* Set the ZeroGold fee account address. */
+        // NOTE We hard-code the address here, since it should never change.
+        // zeroGold = 0x6ef5bca539A4A01157af842B4823F54F9f7E9968;
+        zeroGold = 0x079F89645eD85b85a475BF2bdc82c82f327f2932; // ROPSTEN
+
         /* Initialize Wrapped ETH contract. */
         // NOTE We hard-code the address here, since it should never change.
         // wethContract = WrapperInterface(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
         wethContract = WrapperInterface(0xc778417E063141139Fce010982780140Aa0cD5Ab); // ROPSTEN
+
+        /* Set the ZeroGold fee account address. */
+        boostFeeAccount = 0x0;
     }
 
     /**
@@ -445,6 +459,23 @@ contract ZeroCache is Owned {
         address _token,
         bytes _data
     ) external returns (bool) {
+        // TODO Payload actions are not yet implemented.
+        // parse the data: first byte is for action id.
+        // byte actionId = _data[0];
+
+        /**
+         * If `_data` is an `address`, then set the value to `from`.
+         * e.g. when `approveAndCall` is made from a contract (representing the owner).
+         */
+        if (_data.length == 20) {
+            /* Retrieve the receiver's address from the (data) payload. */
+            address receiver = _bytesToAddress(_data);
+
+            /* NOTE: Deposit credited to `_data` address. */
+            return _deposit(receiver, _tokens, _token, _data);
+        }
+
+        /* NOTE: Deposit credited to `msg.sender`. */
         return _deposit(_from, _tokens, _token, _data);
     }
 
@@ -505,7 +536,7 @@ contract ZeroCache is Owned {
         /* Validate available balance. */
         if (balances[_token][_owner] < _tokens) revert();
 
-        /* Decrease owner's balanc by token amount. */
+        /* Decrease owner's balance by token amount. */
         balances[_token][_owner] = balances[_token][_owner].sub(_tokens);
 
         /* Transfer requested tokens to owner. */
@@ -535,26 +566,40 @@ contract ZeroCache is Owned {
     /**
      * Transfer
      *
-     * NOTE: This transfer requires an off-chain (EC) signature,
-     *       from the account holder, detailing the transaction.
+     * This transfer requires an off-chain (EC) signature, from the
+     * account holder, detailing the transaction.
+     *
+     * Boost Fee
+     * ---------
+     *
+     * Users may choose to boost the fee paid for their transfer request,
+     * decreasing the delivery time to near instant (highest priority for
+     * miners to process) confirmation. This fee is paid for in ZeroGold,
+     * and is 100% optional. Standard Delivery will be FREE forever.
+     *
+     * TODO: Let's implement GasToken to provide relayers an opportunity
+     *       to hedge against the volatility of the gas price.
+     *       (source: https://gastoken.io/)
      */
     function transfer(
-        address _from,
-        address _to,
-        uint256 _tokens,
-        address _token,
-        uint256 _expires,
-        uint256 _nonce,
-        bytes _signature
+        address _token,     // contract address
+        address _from,      // sender's address
+        address _to,        // receiver's address
+        uint256 _tokens,    // quantity of tokens
+        uint256 _boostFee,  // boost fee
+        uint256 _expires,   // expiration time
+        uint256 _nonce,     // unique integer
+        bytes _signature    // signed message
     ) external returns (bool success) {
         /* Calculate the signature hash. */
         bytes32 sigHash = keccak256(abi.encodePacked(
             "\x19Ethereum Signed Message:\n224",
             keccak256(abi.encodePacked(address(this))),
+            keccak256(abi.encodePacked(_token)),
             keccak256(abi.encodePacked(_from)),
             keccak256(abi.encodePacked(_to)),
-            keccak256(abi.encodePacked(_token)),
             keccak256(abi.encodePacked(_tokens)),
+            keccak256(abi.encodePacked(_boostFee)),
             keccak256(abi.encodePacked(_expires)),
             keccak256(abi.encodePacked(_nonce))
         ));
@@ -573,6 +618,11 @@ contract ZeroCache is Owned {
 
         /* Validate the signer matches owner of the tokens. */
         if (_from != authorizedAccount) revert();
+
+        /* Validate boost fee and pay (if necessary). */
+        if (_boostFee > 0) {
+            _payBoostFee(_from, _boostFee);
+        }
 
         /* Request token transfer. */
         return _transfer(_from, _to, _token, _tokens);
@@ -598,6 +648,33 @@ contract ZeroCache is Owned {
 
         /* Report the transfer. */
         emit Transfer(_token, _sender, _receiver, _tokens);
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Pay Boost Fee (private)
+     *
+     * This is an (optional) fee paid by the sender, which
+     * transfers ZeroGold from the sender's account to the specified
+     * fee account (eg. Infinity Pool).
+     */
+    function _payBoostFee(
+        address _sender,
+        uint _tokens
+    ) private returns (bool success) {
+        /* Validate available balance. */
+        if (balances[zeroGold][_sender] < _tokens) revert();
+
+        /* Decrease owner's balance by token amount. */
+        balances[zeroGold][_sender] = balances[zeroGold][_sender].sub(_tokens);
+
+        /* Transfer specified tokens to boost account. */
+        ERC20Interface(zeroGold).transfer(boostFeeAccount, _tokens);
+
+        /* Record to event log. */
+        emit Transfer(zeroGold, _sender, boostFeeAccount, _tokens);
 
         /* Return success. */
         return true;
@@ -639,10 +716,10 @@ contract ZeroCache is Owned {
      * Sweep
      */
     function sweep(
-        address _token,
+        address[] _tokens,
         bool _preApproved
     ) external returns (bool success) {
-        return _sweep(msg.sender, _token, _preApproved);
+        return _sweep(msg.sender, _tokens, _preApproved);
     }
 
     /**
@@ -650,10 +727,10 @@ contract ZeroCache is Owned {
      */
     function sweep(
         address _owner,
-        address _token,
+        address[] _tokens,
         bool _preApproved
     ) onlyAuthBy0Admin external returns (bool success) {
-        return _sweep(_owner, _token, _preApproved);
+        return _sweep(_owner, _tokens, _preApproved);
     }
 
     /**
@@ -666,11 +743,15 @@ contract ZeroCache is Owned {
      */
     function _sweep(
         address _owner,
-        address _token,
+        address[] _tokens,
         bool _preApproved
     ) private returns (bool success) {
+
+        // TODO Create loop to process tokens one-at-a-time.
+        address token = _tokens[0];
+
         /* Retrieve available balance. */
-        uint balance = balances[_token][_owner];
+        uint balance = balances[token][_owner];
 
         /* Pull latest instance address from Zer0net Db. */
         address latestCache = zer0netDb.getAddress(
@@ -684,15 +765,15 @@ contract ZeroCache is Owned {
 
         /* Transfer full balance to owner's account on the latest instance. */
         if (_preApproved) {
-            ZeroCache(latestCache).deposit(_owner, balance, _token, data);
+            ZeroCache(latestCache).deposit(_owner, balance, token, data);
         } else {
-            ApproveAndCallFallBack(_token).approveAndCall(_owner, balance, data);
+            ApproveAndCallFallBack(token).approveAndCall(_owner, balance, data);
         }
 
         // TODO If WETH, must first get allowance.
 
         /* Record to event log. */
-        emit Sweep(_token, _owner, balance);
+        emit Sweep(token, _owner, balance);
 
         /* Return success. */
         return true;
@@ -714,6 +795,21 @@ contract ZeroCache is Owned {
     }
 
     /**
+     * Set Boost Fee Account
+     *
+     * This is the contract address that receives boost fees paid by users.
+     */
+    function setBoostFeeAccount(
+        address _feeHolder
+    ) onlyAuthBy0Admin external returns (bool success) {
+        /* Set fee holder account. */
+        boostFeeAccount = _feeHolder;
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
      * Transfer Any ERC20 Token
      *
      * @notice Owner can transfer out any accidentally sent ERC20 tokens.
@@ -725,5 +821,23 @@ contract ZeroCache is Owned {
         address tokenAddress, uint tokens
     ) external onlyOwner returns (bool success) {
         return ERC20Interface(tokenAddress).transfer(owner, tokens);
+    }
+
+    /**
+     * Bytes-to-Address
+     *
+     * Converts bytes into type address.
+     */
+    function _bytesToAddress(bytes _address) private pure returns (address) {
+        uint160 m = 0;
+        uint160 b = 0;
+
+        for (uint8 i = 0; i < 20; i++) {
+            m *= 256;
+            b = uint160(_address[i]);
+            m += (b);
+        }
+
+        return address(m);
     }
 }
