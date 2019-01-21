@@ -238,9 +238,6 @@ contract ZeroCache is Owned {
     /* Initialize ZeroGold contract address. */
     address public zeroGold;
 
-    /* Initialize Boost Fee account. */
-    address public boostFeeAccount;
-
     /* Initialize Zer0net Db contract. */
     Zer0netDbInterface public zer0netDb;
 
@@ -303,9 +300,6 @@ contract ZeroCache is Owned {
         // NOTE We hard-code the address here, since it should never change.
         // wethContract = WrapperInterface(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
         wethContract = WrapperInterface(0xc778417E063141139Fce010982780140Aa0cD5Ab); // ROPSTEN
-
-        /* Set the ZeroGold fee account address. */
-        boostFeeAccount = 0x0;
     }
 
     /**
@@ -582,14 +576,15 @@ contract ZeroCache is Owned {
      *       (source: https://gastoken.io/)
      */
     function transfer(
-        address _token,     // contract address
-        address _from,      // sender's address
-        address _to,        // receiver's address
-        uint256 _tokens,    // quantity of tokens
-        uint256 _boostFee,  // boost fee
-        uint256 _expires,   // expiration time
-        uint256 _nonce,     // unique integer
-        bytes _signature    // signed message
+        address _token,         // contract address
+        address _from,          // sender's address
+        address _to,            // receiver's address
+        uint256 _tokens,        // quantity of tokens
+        address _boostProvider, // boost service provider
+        uint256 _boostFee,      // boost fee
+        uint256 _expires,       // expiration time
+        uint256 _nonce,         // unique integer
+        bytes _signature        // signed message
     ) external returns (bool success) {
         /* Calculate the signature hash. */
         bytes32 sigHash = keccak256(abi.encodePacked(
@@ -599,6 +594,7 @@ contract ZeroCache is Owned {
             keccak256(abi.encodePacked(_from)),
             keccak256(abi.encodePacked(_to)),
             keccak256(abi.encodePacked(_tokens)),
+            keccak256(abi.encodePacked(_boostProvider)),
             keccak256(abi.encodePacked(_boostFee)),
             keccak256(abi.encodePacked(_expires)),
             keccak256(abi.encodePacked(_nonce))
@@ -621,7 +617,7 @@ contract ZeroCache is Owned {
 
         /* Validate boost fee and pay (if necessary). */
         if (_boostFee > 0) {
-            _payBoostFee(_from, _boostFee);
+            _payBoostFee(_from, _boostProvider, _boostFee);
         }
 
         /* Request token transfer. */
@@ -662,6 +658,7 @@ contract ZeroCache is Owned {
      */
     function _payBoostFee(
         address _sender,
+        address _provider,
         uint _tokens
     ) private returns (bool success) {
         /* Validate available balance. */
@@ -671,10 +668,10 @@ contract ZeroCache is Owned {
         balances[zeroGold][_sender] = balances[zeroGold][_sender].sub(_tokens);
 
         /* Transfer specified tokens to boost account. */
-        ERC20Interface(zeroGold).transfer(boostFeeAccount, _tokens);
+        ERC20Interface(zeroGold).transfer(_provider, _tokens);
 
         /* Record to event log. */
-        emit Transfer(zeroGold, _sender, boostFeeAccount, _tokens);
+        emit Transfer(zeroGold, _sender, _provider, _tokens);
 
         /* Return success. */
         return true;
@@ -789,21 +786,6 @@ contract ZeroCache is Owned {
     ) onlyAuthBy0Admin external returns (bool success) {
         /* Set successor account. */
         successor = _successor;
-
-        /* Return success. */
-        return true;
-    }
-
-    /**
-     * Set Boost Fee Account
-     *
-     * This is the contract address that receives boost fees paid by users.
-     */
-    function setBoostFeeAccount(
-        address _feeHolder
-    ) onlyAuthBy0Admin external returns (bool success) {
-        /* Set fee holder account. */
-        boostFeeAccount = _feeHolder;
 
         /* Return success. */
         return true;
