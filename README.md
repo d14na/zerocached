@@ -1,4 +1,4 @@
-# ZeroCache
+# ZeroCache (alpha)
 
 > HODL • SPEDN • STAEK
 
