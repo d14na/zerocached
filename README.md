@@ -49,3 +49,27 @@ _NOTE: trades are reserved to limit orders ONLY_
 ##### [0xEB01672F59ebb3dcbcbb02129d864c2dba8d4c6b](https://etherscan.io/address/0xEB01672F59ebb3dcbcbb02129d864c2dba8d4c6b)
 
 _NOTE: trades are reserved to market orders ONLY_
+
+## ZPI : Zero(Cache) Price Index
+
+##### Core Prices
+
+1. __[WETH](https://etherscan.io/token/0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2)__ Wrapped Ether
+2. __[0GOLD](https://etherscan.io/token/0x6ef5bca539a4a01157af842b4823f54f9f7e9968)__ ZeroGold
+3. __[0xBTC](https://etherscan.io/token/0xb6ed7644c69416d67b522e20bc294a9a9b405b31)__ 0xBitcoin Token
+
+##### Mainnet
+
+[0x1b0Ca53Bb5396d0F8492d08E11C7c07F3944b699](https://etherscan.io/address/0x1b0ca53bb5396d0f8492d08e11c7c07f3944b699#code)
+
+##### Ropsten
+
+[0xC5a1BaEcfd2FceB237b8a9Feab668e8b487E688b](https://ropsten.etherscan.io/address/0xc5a1baecfd2fceb237b8a9feab668e8b487e688b#code) 
+
+##### Get Trade Price of Single Token
+
+`web3.eth.Contract.methods.tradePriceOf(_token)`
+
+##### Get Trade Price of ALL Tokens
+
+`web3.eth.Contract.methods.coreTradePrices()`
