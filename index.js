@@ -5,24 +5,87 @@ const app = express()
 const moment = require('moment')
 const Web3 = require('web3')
 
-const ABI = require('./abi')
 const CONFIG = require('./config')
 
 const ZEROGOLD_BASE_PRICE = 0.023809523809524 // ~US$0.02 @ $500,000 valuation
-const TOKEN_STORE_TICKER = 'https://v1-1.api.token.store/ticker'
-const DEFAULT_GAS = '300000'
-const DEFAULT_PORT = 3000
+const TOKEN_STORE_TICKER =
 
-// const SOCKET_URL = 'https://socket.etherdelta.com'
-const SOCKET_URL = 'https://socket.forkdelta.app'
+// const SOCKET_URL =
 
-const HTTP_PROVIDER = 'https://mainnet.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
-// const HTTP_PROVIDER = 'https://ropsten.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
+// const HTTP_PROVIDER = 'https://mainnet.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
+const HTTP_PROVIDER = 'https://ropsten.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
 // const WS_PROVIDER = 'wss://ropsten.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
 
-const web3 = new Web3(new Web3.providers.HttpProvider(HTTP_PROVIDER))
+const web3 =
 
-app.get('/', (req, res) => res.send('<h1>Welcome to ZeroCache!</h1>'))
+/**
+ * Relay Station
+ */
+class RelayStation {
+    constructor () {
+        this._init()
+    }
+
+    /**
+     * App Initialization.
+     */
+    _init () {
+        /* Initailize Express framework. */
+        this.app = express()
+
+        /* Initialize Web3. */
+        this.web3 = new Web3(new Web3.providers.HttpProvider(HTTP_PROVIDER))
+
+        /* Initialize endpoints / routes. */
+        this.routes = require('./routes')
+
+        /* Initialize (default) port number. */
+        this.portNum = 3000
+
+        /* Initialize (default) gas amount. */
+        this.gasAmount = '300000'
+
+        /* Set Token Store Ticker URL. */
+        this.tokenStoreTickerUrl = 'https://v1-1.api.token.store/ticker'
+
+        /* Set ForkDelta Socket URL. */
+        // NOTE: This appears to be more reliable than EtherDelta.
+        this.forkDeltaSocketUrl = 'https://socket.forkdelta.app'
+
+        /* Set EtherDelta Socket URL. */
+        this.forkDeltaSocketUrl = 'https://socket.etherdelta.com'
+
+        /* Start API server. */
+        this._startAPIServer()
+    }
+
+    /**
+     * Start API Server
+     */
+    _startAPIServer () {
+        this.app.listen(
+            this.portNum, () => console.log(`Example app listening on port ${DEFAULT_PORT}!`))
+
+        this.app.get('/', this['routes'].homepage)
+    }
+}
+
+/**
+ * Maia (Market Maker Bot)
+ */
+class Maia {
+
+}
+
+/* Create new relay station. */
+const relayStation = new RelayStation()
+
+/* Initialize relay station. */
+relayStation.init()
+
+
+
+
 
 // https://cache.0net.io/limit
 app.get('/limit', (req, res) => {
@@ -61,7 +124,7 @@ app.get('/approve', (req, res) => {
     const privateKey = CONFIG['bots']['auntieAlice'].privateKey
 
     /* Initilize abi. */
-    const abi = ABI.zerogold
+    const abi = require('./abi/zerogold')
 
     /* Initilize address. */
     const contractAddress = '0x6ef5bca539A4A01157af842B4823F54F9f7E9968' // ZeroGold
@@ -121,7 +184,7 @@ app.get('/depositToken', (req, res) => {
     const privateKey = CONFIG['bots']['auntieAlice'].privateKey
 
     /* Initilize abi. */
-    const abi = ABI.etherDelta
+    const abi = require('./abi/etherDelta')
 
     /* Initilize address. */
     const contractAddress = '0x8d12A197cB00D4747a1fe03395095ce2A5CC6819' // ZeroDelta_2
@@ -181,7 +244,7 @@ app.get('/order', async (req, res) => {
     const privateKey = CONFIG['bots']['auntieAlice'].privateKey
 
     /* Initilize abi. */
-    const abi = ABI.etherDelta
+    const abi = require('./abi/etherDelta')
 
     /* Initilize address. */
     const contractAddress = '0x8d12A197cB00D4747a1fe03395095ce2A5CC6819' // ZeroDelta_2
@@ -286,7 +349,7 @@ app.get('/tsOrder', async (req, res) => {
     const privateKey = CONFIG['bots']['auntieAlice'].privateKey
 
     /* Initilize abi. */
-    const abi = ABI.etherDelta
+    const abi = require('./abi/etherDelta')
 
     /* Initilize address. */
     const contractAddress = '0x8d12A197cB00D4747a1fe03395095ce2A5CC6819' // ZeroDelta_2
@@ -437,7 +500,7 @@ app.get('/edBalance', (req, res) => {
     const contractAddress = '0x8d12A197cB00D4747a1fe03395095ce2A5CC6819'
 
     /* Initilize abi. */
-    const abi = ABI.etherDelta
+    const abi = require('./abi/etherDelta')
 
     /* Initialize gas price. */
     const gasPrice = '20000000000' // default gas price in wei, 20 gwei in this case
@@ -455,18 +518,18 @@ app.get('/edBalance', (req, res) => {
             '0x6ef5bca539A4A01157af842B4823F54F9f7E9968', // token
             '0x3F75223FdF7e8d0f59060945497E48B9A1608f20' // account address
         ).call({ from },
-    function (_error, _result) {
-        if (_error) return console.error(_error)
+            function (_error, _result) {
+                if (_error) return console.error(_error)
 
-        console.log('RESULT', _result)
+                console.log('RESULT', _result)
 
-        let pkg = {
-            balance: _result,
-            bricks: parseInt(_result / 100000000)
-        }
+                let pkg = {
+                    balance: _result,
+                    bricks: parseInt(_result / 100000000)
+                }
 
-        res.json(pkg)
-    })
+                res.json(pkg)
+            })
 })
 
 // https://cache.0net.io/orderbook
@@ -482,8 +545,6 @@ app.get('/ed/orderbook', function(req, res, next){
 	    res.send(checkOutput(JSON.parse(JSON.stringify(data))));
     })
 })
-
-app.listen(DEFAULT_PORT, () => console.log(`Example app listening on port ${DEFAULT_PORT}!`))
 
 // NOTE: What is this for?? returnTicker??
 const checkOutput = function (_op) {
