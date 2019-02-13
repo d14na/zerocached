@@ -84,6 +84,9 @@ class RelayStation {
 
         // https://cache.0net.io/limit/
         this.app.get('/limit', this['routes']['limit'].info.bind(this))
+
+        // https://cache.0net.io/market/
+        this.app.get('/market', this['routes']['market'].info.bind(this))
     }
 
     // FIXME What is this for?? returnTicker??
@@ -111,20 +114,6 @@ const relayStation = new RelayStation()
 
 
 
-
-// https://cache.0net.io/market
-// app.get('/market', (req, res) => {
-//     /* Initilize private key. */
-//     const pk = CONFIG['accounts']['market'].privateKey
-//
-//     /* Initialize new account from private key. */
-//     const acct = web3.eth.accounts.privateKeyToAccount(pk)
-//
-//     // NOTE Remove this for security reasons
-//     delete acct.privateKey
-//
-//     res.json(acct)
-// })
 
 // https://cache.0net.io/approve
 // app.get('/approve', (req, res) => {
