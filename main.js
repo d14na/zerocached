@@ -1,179 +1,21 @@
-/* Initailize Express. */
-const express = require('express')
+/* Import vendor libraries. */
+// import io from 'socket.io-client'
 
-/* Initialize Socket.io. */
-const io = require('socket.io-client')
+/* Import core app libraries. */
+import Maia from './src/Maia'
+import RelayStation from './src/RelayStation'
 
-/* Initialize moment. */
-const moment = require('moment')
+console.log('\n')
+console.log('ZeroCache Daemon v19.2.12 (alpha)')
+console.log('---------------------------------')
+console.log('\n')
 
-/* Initialize Web3. */
-const Web3 = require('web3')
-
-/**
- * Relay Station
- */
-class RelayStation {
-    constructor () {
-        console.log('\n')
-        console.log('ZeroCache Daemon v19.2.12 (alpha)')
-        console.log('---------------------------------')
-        console.log('\n')
-
-        /* Start initialization. */
-        this._init()
-    }
-
-    /**
-     * App Initialization.
-     */
-    _init () {
-        console.log('Starting ZeroCache Daemon initialization...')
-
-        /* Initialize configuration settings. */
-        this.config = require('./config')
-
-        /* Set ZeroGold base price. */
-        // NOTE: maximum 21,000,000 tokens @ starting $500,000 valuation
-        this.zerogoldBasePrice = 0.023809523809524
-
-        /* Initailize Express framework. */
-        this.app = express()
-
-        /* Initialize endpoints / routes. */
-        this.routes = require('./routes')
-
-        /* Initialize (default) port number. */
-        this.portNum = 3000
-
-        // this.httpProvider = 'https://mainnet.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
-        // this.wsProvider = 'wss://mainnet.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
-        this.httpProvider = 'https://ropsten.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
-        this.wsProvider = 'wss://ropsten.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
-
-        /* Initialize Web3. */
-        this.web3 = new Web3(new Web3.providers.HttpProvider(this.httpProvider))
-
-        /* Initialize (default) gas amount. */
-        this.gasAmount = '300000'
-
-        /* Set Token Store Ticker URL. */
-        this.tokenStoreTickerUrl = 'https://v1-1.api.token.store/ticker'
-
-        /* Set ForkDelta Socket URL. */
-        // NOTE: This appears to be more reliable than EtherDelta.
-        this.forkDeltaSocketUrl = 'https://socket.forkdelta.app'
-
-        /* Set EtherDelta Socket URL. */
-        this.forkDeltaSocketUrl = 'https://socket.etherdelta.com'
-
-        /* Start API server. */
-        this._startAPIServer()
-    }
-
-    /**
-     * Start API Server
-     */
-    _startAPIServer () {
-        this.app.listen(this.portNum, () => {
-            console.log(`ZeroCache Daemon is now listening. [ port: ${this.portNum} ]`)
-        })
-
-        // https://cache.0net.io/
-        this.app.get('/', this['routes'].homepage.bind(this))
-
-        // https://cache.0net.io/limit/
-        this.app.get('/limit', this['routes']['limit'].info.bind(this))
-
-        // https://cache.0net.io/market/
-        this.app.get('/market', this['routes']['market'].info.bind(this))
-    }
-
-    // FIXME What is this for?? returnTicker??
-    _checkOutput (_op) {
-        if (typeof _op['returnTicker'] !== 'undefined') {
-            prev_good = _op
-
-            return _op
-        } else {
-            return prev_good
-        }
-    }
-
-}
-
-/**
- * Maia (Market Maker Bot)
- */
-class Maia {
-
-}
+/* Create new Maia bot. */
+// NOTE: Maia is D14na's "official" Money Manager Bot.
+const maia = new Maia()
 
 /* Create new relay station. */
 const relayStation = new RelayStation()
-
-
-
-
-// https://cache.0net.io/approve
-// app.get('/approve', (req, res) => {
-//     /* Initilize address. */
-//     const from = CONFIG['bots']['auntieAlice'].address
-//
-//     /* Initilize private key. */
-//     const privateKey = CONFIG['bots']['auntieAlice'].privateKey
-//
-//     /* Initilize abi. */
-//     const abi = require('./abi/zerogold')
-//
-//     /* Initilize address. */
-//     const contractAddress = '0x6ef5bca539A4A01157af842B4823F54F9f7E9968' // ZeroGold
-//
-//     /* Initialize options. */
-//     const options = { from, gasPrice }
-//
-//     const myContract = new web3.eth.Contract(
-//         abi, contractAddress)
-//
-//     const encodedABI = myContract.methods.approve(
-//         '0x8d12A197cB00D4747a1fe03395095ce2A5CC6819', // ZeroDelta_2
-//         1000000000000 // 10k tokens
-//     ).encodeABI()
-//
-//     var gasPrice = '1.8' //or get with web3.eth.gasPrice
-//
-//     const tx = {
-//         from,
-//         to: contractAddress,
-//         gas: DEFAULT_GAS,
-//         gasPrice: web3.utils.toHex(gasPrice * 1e9),
-//         // gasLimit: web3.utils.toHex(gasLimit),
-//         data: encodedABI
-//     }
-//
-//     web3.eth.accounts.signTransaction(tx, privateKey)
-//         .then(signed => {
-//             const tx = web3.eth.sendSignedTransaction(signed.rawTransaction)
-//
-//             // NOTE: Why do we need to listen for 24 confirmations??
-//             tx.on('confirmation', (confirmationNumber, receipt) => {
-//                 // console.log('confirmation: ' + confirmationNumber)
-//                 // if (receipt) console.log('CONFIRMATION RECEIPT', receipt)
-//             })
-//
-//             tx.on('transactionHash', hash => {
-//                 console.log('hash', hash)
-//             })
-//
-//             tx.on('receipt', receipt => {
-//                 console.log('reciept', receipt)
-//
-//                 res.json(receipt)
-//             })
-//
-//             tx.on('error', console.error)
-//         })
-// })
 
 // https://cache.0net.io/depositToken
 // app.get('/depositToken', (req, res) => {
