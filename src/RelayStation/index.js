@@ -72,29 +72,29 @@ class RelayStation {
         this.app.get('/', this['routes'].homepage.bind(this))
 
         // https://cache.0net.io/limit/
-        this.app.get('/limit', this['routes']['limit'].info.bind(this))
+        this.app.get('/limit', this['routes']['limit'].stats.bind(this))
 
         // https://cache.0net.io/market/
-        this.app.get('/market', this['routes']['market'].info.bind(this))
+        this.app.get('/market', this['routes']['market'].stats.bind(this))
 
         // https://cache.0net.io/approve
         // this.app.get('/approve', this['routes']['exchange'].approve.bind(this))
 
         // https://cache.0net.io/depositToken
         // this.app.get('/depositToken', this['routes']['exchange'].depositToken.bind(this))
+
+        // https://cache.0net.io/order
+        // this.app.get('/order', this['routes']['exchange'].order.bind(this))
+
+        // https://cache.0net.io/tsOrder
+        // this.app.get('/tsOrder', this['routes']['exchange'].tsOrder.bind(this))
+
+        // https://cache.0net.io/edBalance
+        // this.app.get('/edBalance', this['routes']['exchange'].edBalance.bind(this))
+
+        // https://cache.0net.io/orderbook
+        // this.app.get('/orderbook', this['routes']['exchange'].orderbook.bind(this))
     }
-
-    // FIXME What is this for?? returnTicker??
-    _checkOutput (_op) {
-        if (typeof _op['returnTicker'] !== 'undefined') {
-            prev_good = _op
-
-            return _op
-        } else {
-            return prev_good
-        }
-    }
-
 }
 
 export default RelayStation
