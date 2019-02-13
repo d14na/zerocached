@@ -79,6 +79,9 @@ class RelayStation {
 
         // https://cache.0net.io/approve
         // this.app.get('/approve', this['routes']['exchange'].approve.bind(this))
+
+        // https://cache.0net.io/depositToken
+        // this.app.get('/depositToken', this['routes']['exchange'].depositToken.bind(this))
     }
 
     // FIXME What is this for?? returnTicker??

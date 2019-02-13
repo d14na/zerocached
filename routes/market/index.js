@@ -16,7 +16,7 @@ const info = function (req, res) {
     res.json(acct)
 }
 
-/* Export homepage. */
+/* Export modules. */
 module.exports = {
     info
 }
