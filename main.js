@@ -3,16 +3,19 @@
 
 /* Import core app libraries. */
 import Maia from './src/Maia'
+import MarketMaker from './src/MarketMaker'
 import RelayStation from './src/RelayStation'
 
 console.log('\n')
 console.log('ZeroCache Daemon v19.2.12 (alpha)')
-console.log('---------------------------------')
-console.log('\n')
+console.log('---------------------------------\n')
 
 /* Create new Maia bot. */
 // NOTE: Maia is D14na's "official" Money Manager Bot.
 const maia = new Maia()
+
+/* Create new market maker. */
+const marketMaker = new MarketMaker()
 
 /* Create new relay station. */
 const relayStation = new RelayStation()

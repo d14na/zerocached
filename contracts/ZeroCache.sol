@@ -5,12 +5,36 @@ pragma solidity ^0.4.25;
  * Copyright (c) 2019 Decentralization Authority MDAO.
  * Released under the MIT License.
  *
- * ZeroCache - (AmTrust) is the first installment of an experimental
- *             meta-currency/smart wallet (backed by a federated network of
- *             contract/daemon nodes) powering the nascent community of
- *             Zer0net-sponsored products & services.
+ * ZeroCache - AmTrust (rev0)
  *
- * Version 19.1.15
+ *             -----------------------------------------------------------------
+ *
+ *             !!! WARNING WARNING WARNING !!!
+ *             !!! THIS IS HIGHLY EXPERIMENTAL SOFTWARE !!!
+ *             !!! USE AT YOUR OWN RISK !!!
+ *
+ *             -----------------------------------------------------------------
+ *
+ *             Our team at D14na has been hard at work over the Crypto Winter;
+ *             and we are very proud to announce the premier release of a still
+ *             experimental, but really fun and social new way to "Do Crypto!"
+ *
+ *             TL;DR
+ *             -----
+ *
+ *             A meta-currency / smart wallet built for the purpose of promoting
+ *             and supporting the core economic needs of the Zeronet community:
+ *                 1. Electronic Commerce
+ *                 2. Zite Monetization
+ *                 3. Wealth Management
+ *
+ *             ALL transactions are guaranteed by Solidty contracts managed by a
+ *             growing community of federated nodes.
+ *
+ *             For more information, please visit:
+ *             https://0net.io/zerocache.bit
+ *
+ * Version 19.2.12
  *
  * https://d14na.org
  * support@d14na.org
@@ -108,6 +132,7 @@ contract Owned {
 
 
 /*******************************************************************************
+ *
  * Zer0netDb Interface
  */
 contract Zer0netDbInterface {
@@ -139,12 +164,9 @@ contract Zer0netDbInterface {
 
 /*******************************************************************************
  *
- * WrapperInterface
- *
- * Contract function to receive approval and execute function in one call
- * (borrowed from MiniMeToken)
+ * Wrapped ETH (WETH) Interface
  */
-contract WrapperInterface {
+contract WETHInterface {
     function() public payable;
     function deposit() public payable ;
     function withdraw(uint wad) public;
@@ -226,8 +248,8 @@ library ECRecovery {
 contract ZeroCache is Owned {
     using SafeMath for uint;
 
-    /* Initialize version name. */
-    string public version;
+    /* Initialize revision number. */
+    uint public revision;
 
     /* Initialize predecessor contract. */
     address public predecessor;
@@ -235,17 +257,17 @@ contract ZeroCache is Owned {
     /* Initialize successor contract. */
     address public successor;
 
-    /* Initialize ZeroGold contract address. */
-    address public zeroGold;
-
     /* Initialize Zer0net Db contract. */
-    Zer0netDbInterface public zer0netDb;
+    Zer0netDbInterface private _zer0netDb;
 
-    /* Initialize Wrapped ETH contract. */
-    WrapperInterface public wethContract;
+    /* Initialize ZeroGold contract. */
+    ERC20Interface private _zeroGold;
+
+    /* Initialize Wrapped ETH (WETH) contract. */
+    WETHInterface private _wethContract;
 
     /* Initialize account balances. */
-    mapping(address => mapping (address => uint256)) balances;
+    mapping(address => mapping (address => uint)) balances;
 
     /* Initialize expired signature flags. */
     mapping(bytes32 => bool) expiredSignatures;
@@ -281,25 +303,29 @@ contract ZeroCache is Owned {
      * Constructor
      */
     constructor() public {
-        /* Set the version name. */
-        version = 'AmTrust.1';
-
         /* Set the predecessor contract. */
         predecessor = 0x0;
 
+        /* Retrieve the last revision number (if available). */
+        uint lastRevision = ZeroCache(predecessor).revision;
+
+        /* Set (current) revision number. */
+        revision = lastRevision + 1;
+
         /* Initialize Zer0netDb (eternal) storage database contract. */
         // NOTE We hard-code the address here, since it should never change.
-        zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
+        // zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
+        _zer0netDb = Zer0netDbInterface(0x4C2f68bCdEEB88764b1031eC330aD4DF8d6F64D6); // ROPSTEN
 
         /* Set the ZeroGold fee account address. */
         // NOTE We hard-code the address here, since it should never change.
         // zeroGold = 0x6ef5bca539A4A01157af842B4823F54F9f7E9968;
-        zeroGold = 0x079F89645eD85b85a475BF2bdc82c82f327f2932; // ROPSTEN
+        // zeroGold = 0x079F89645eD85b85a475BF2bdc82c82f327f2932; // ROPSTEN
 
-        /* Initialize Wrapped ETH contract. */
+        /* Initialize Wrapped ETH (WETH) contract. */
         // NOTE We hard-code the address here, since it should never change.
         // wethContract = WrapperInterface(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
-        wethContract = WrapperInterface(0xc778417E063141139Fce010982780140Aa0cD5Ab); // ROPSTEN
+        // wethContract = WETHInterface(0xc778417E063141139Fce010982780140Aa0cD5Ab); // ROPSTEN
     }
 
     /**
@@ -307,7 +333,7 @@ contract ZeroCache is Owned {
      */
     modifier onlyAuthBy0Admin() {
         /* Verify write access is only permitted to authorized accounts. */
-        require(zer0netDb.getBool(keccak256(
+        require(_zer0netDb.getBool(keccak256(
             abi.encodePacked(msg.sender, '.has.auth.for.cache'))) == true);
 
         _;      // function code is inserted here
@@ -328,7 +354,7 @@ contract ZeroCache is Owned {
      * Fallback (default)
      *
      * Accepts direct ETH transfers to be wrapped for owner into one of the
-     * canonical Wrapped ETH contracts:
+     * canonical Wrapped ETH (WETH) contracts:
      *     - Mainnet : 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
      *     - Ropsten : 0xc778417E063141139Fce010982780140Aa0cD5Ab
      *     - Kovan   : 0xd0A1E359811322d97991E03f863a0C30C2cF029C
@@ -336,8 +362,19 @@ contract ZeroCache is Owned {
      * (source https://blog.0xproject.com/canonical-weth-a9aa7d0279dd)
      */
     function () public payable {
+        /* Set hash. */
+        bytes32 hash = keccak256('aname.WETH');
+
+        /* Set value in Zer0net Db. */
+        address wethAddress = _zer0netDb.setBytes(hash);
+
+        /* Validate WETH address. */
+        if (wethAddress == 0x0) {
+            assert('Oops! This ANAME has NOT been initialized.');
+        }
+
         /* DO NOT (re-)wrap incoming ETH from Wrapped ETH contract. */
-        if (msg.sender != address(wethContract)) {
+        if (msg.sender != wethAddress) {
             _wrap();
         }
     }
@@ -355,9 +392,9 @@ contract ZeroCache is Owned {
     /**
      * Wrap (private)
      */
-    function _wrap() private returns (bool) {
+    function _wrap() private returns (bool success) {
         /* Forward this payable ether into the wrapping contract. */
-        bool success = address(wethContract).call
+        success = address(wethContract).call
             .gas(200000)
             .value(msg.value)
             (abi.encodeWithSignature("deposit()"));
@@ -370,15 +407,13 @@ contract ZeroCache is Owned {
 
         /* Record to event log. */
         emit Deposit(address(wethContract), msg.sender, msg.value, data);
-
-        return success;
     }
 
     /**
      * Unwrap
      */
     function unwrap(
-        uint256 _tokens
+        uint _tokens
     ) external returns (bool success) {
         return _unwrap(msg.sender, _tokens);
     }
@@ -388,7 +423,7 @@ contract ZeroCache is Owned {
      */
     function unwrap(
         address _owner,
-        uint256 _tokens
+        uint _tokens
     ) onlyAuthBy0Admin external returns (bool success) {
         return _unwrap(_owner, _tokens);
     }
@@ -401,13 +436,13 @@ contract ZeroCache is Owned {
      */
     function _unwrap(
         address _owner,
-        uint256 _tokens
-    ) private returns (bool) {
+        uint _tokens
+    ) private returns (bool success) {
         /* Decrease WETH balance by sent value. */
         balances[address(wethContract)][_owner] = balances[address(wethContract)][_owner].sub(_tokens);
 
         /* Withdraw ETH from Wrapper contract. */
-        bool success = address(wethContract).call
+        success = address(wethContract).call
             .gas(200000)
             (abi.encodeWithSignature("withdraw(uint256)", _tokens));
 
@@ -420,8 +455,6 @@ contract ZeroCache is Owned {
             address(_owner),
             _tokens
         );
-
-        return success;
     }
 
     /**
@@ -434,12 +467,12 @@ contract ZeroCache is Owned {
      *       to successfully complete the transfer.
      */
     function deposit(
+        address _token,
         address _from,
         uint _tokens,
-        address _token,
         bytes _data
-    ) external returns (bool) {
-        return _deposit(_from, _tokens, _token, _data);
+    ) external returns (bool success) {
+        return _deposit(_token, _from, _tokens, _data);
     }
 
     /**
@@ -452,7 +485,7 @@ contract ZeroCache is Owned {
         uint _tokens,
         address _token,
         bytes _data
-    ) external returns (bool) {
+    ) public returns (bool success) {
         // TODO Payload actions are not yet implemented.
         // parse the data: first byte is for action id.
         // byte actionId = _data[0];
@@ -466,11 +499,11 @@ contract ZeroCache is Owned {
             address receiver = _bytesToAddress(_data);
 
             /* NOTE: Deposit credited to `_data` address. */
-            return _deposit(receiver, _tokens, _token, _data);
+            return _deposit(_token, receiver, _tokens, _data);
         }
 
         /* NOTE: Deposit credited to `msg.sender`. */
-        return _deposit(_from, _tokens, _token, _data);
+        return _deposit(_token, _from, _tokens, _data);
     }
 
     /**
@@ -480,9 +513,9 @@ contract ZeroCache is Owned {
      *       contract for the amount requested.
      */
     function _deposit(
+        address _token,
         address _from,
         uint _tokens,
-        address _token,
         bytes _data
     ) private returns (bool success) {
         /* Transfer the ERC-20 tokens into Cache. */
@@ -579,11 +612,11 @@ contract ZeroCache is Owned {
         address _token,         // contract address
         address _from,          // sender's address
         address _to,            // receiver's address
-        uint256 _tokens,        // quantity of tokens
+        uint _tokens,           // quantity of tokens
         address _boostProvider, // boost service provider
-        uint256 _boostFee,      // boost fee
-        uint256 _expires,       // expiration time
-        uint256 _nonce,         // unique integer
+        uint _boostFee,         // boost fee
+        uint _expires,          // expiration time
+        uint _nonce,            // unique integer
         bytes _signature        // signed message
     ) external returns (bool success) {
         /* Calculate the signature hash. */
@@ -685,10 +718,10 @@ contract ZeroCache is Owned {
      */
     function cancel(
         address _to,
-        uint256 _tokens,
+        uint _tokens,
         address _token,
-        uint256 _expires,
-        uint256 _nonce
+        uint _expires,
+        uint _nonce
     ) external returns (bool success) {
         /* Calculate the signature hash. */
         bytes32 sigHash = keccak256(abi.encodePacked(
@@ -762,7 +795,7 @@ contract ZeroCache is Owned {
 
         /* Transfer full balance to owner's account on the latest instance. */
         if (_preApproved) {
-            ZeroCache(latestCache).deposit(_owner, balance, token, data);
+            ZeroCache(latestCache).deposit(token, _owner, balance, data);
         } else {
             ApproveAndCallFallBack(token).approveAndCall(_owner, balance, data);
         }
@@ -775,6 +808,39 @@ contract ZeroCache is Owned {
         /* Return success. */
         return true;
     }
+
+    function _isAccountOpen(
+        address _account
+    ) private pure returns (bool success) {
+        // TODO
+        // 1. Check `mapping(address => bool) _accountStatus`
+        // 2. OR... create struct for `Accounts`
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Close Account
+     *
+     * Sets a flag to indicate that ALL tokens have been
+     * transferred out of the Cache and no further activity
+     * is permitted to take place for this account.
+     */
+    function _closeAccount(
+        address _account
+    ) private pure returns (bool success) {
+        // TODO
+        // 1. Validate no tokens exist.
+        // 2. Disable user execution.
+
+        /* Return success. */
+        return true;
+    }
+
+    /**************************************/
+    /* SETTERS */
+    /**************************************/
 
     /**
      * Set Successor
