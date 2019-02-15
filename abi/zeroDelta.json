@@ -1,0 +1,432 @@
+[
+	{
+		"constant": false,
+		"inputs": [
+			{
+				"name": "_tokenGet",
+				"type": "address"
+			},
+			{
+				"name": "_amountGet",
+				"type": "uint256"
+			},
+			{
+				"name": "_tokenGive",
+				"type": "address"
+			},
+			{
+				"name": "_amountGive",
+				"type": "uint256"
+			},
+			{
+				"name": "_expires",
+				"type": "uint256"
+			},
+			{
+				"name": "_nonce",
+				"type": "uint256"
+			}
+		],
+		"name": "order",
+		"outputs": [],
+		"payable": false,
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [
+			{
+				"name": "_tokenGet",
+				"type": "address"
+			},
+			{
+				"name": "_amountGet",
+				"type": "uint256"
+			},
+			{
+				"name": "_tokenGive",
+				"type": "address"
+			},
+			{
+				"name": "_amountGive",
+				"type": "uint256"
+			},
+			{
+				"name": "_expires",
+				"type": "uint256"
+			},
+			{
+				"name": "_nonce",
+				"type": "uint256"
+			},
+			{
+				"name": "_user",
+				"type": "address"
+			}
+		],
+		"name": "amountFilled",
+		"outputs": [
+			{
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": false,
+		"inputs": [
+			{
+				"name": "_tokenGet",
+				"type": "address"
+			},
+			{
+				"name": "_amountGet",
+				"type": "uint256"
+			},
+			{
+				"name": "_tokenGive",
+				"type": "address"
+			},
+			{
+				"name": "_amountGive",
+				"type": "uint256"
+			},
+			{
+				"name": "_expires",
+				"type": "uint256"
+			},
+			{
+				"name": "_nonce",
+				"type": "uint256"
+			},
+			{
+				"name": "_user",
+				"type": "address"
+			},
+			{
+				"name": "_amount",
+				"type": "uint256"
+			},
+			{
+				"name": "_orderSignature",
+				"type": "bytes"
+			},
+			{
+				"name": "_wallet",
+				"type": "address"
+			}
+		],
+		"name": "trade",
+		"outputs": [],
+		"payable": false,
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [],
+		"name": "version",
+		"outputs": [
+			{
+				"name": "",
+				"type": "string"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [],
+		"name": "successor",
+		"outputs": [
+			{
+				"name": "",
+				"type": "address"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": false,
+		"inputs": [],
+		"name": "acceptOwnership",
+		"outputs": [],
+		"payable": false,
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [],
+		"name": "owner",
+		"outputs": [
+			{
+				"name": "",
+				"type": "address"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": false,
+		"inputs": [
+			{
+				"name": "_tokenGet",
+				"type": "address"
+			},
+			{
+				"name": "_amountGet",
+				"type": "uint256"
+			},
+			{
+				"name": "_tokenGive",
+				"type": "address"
+			},
+			{
+				"name": "_amountGive",
+				"type": "uint256"
+			},
+			{
+				"name": "_expires",
+				"type": "uint256"
+			},
+			{
+				"name": "_nonce",
+				"type": "uint256"
+			},
+			{
+				"name": "_signature",
+				"type": "bytes"
+			}
+		],
+		"name": "cancelOrder",
+		"outputs": [],
+		"payable": false,
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [],
+		"name": "predecessor",
+		"outputs": [
+			{
+				"name": "",
+				"type": "address"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [],
+		"name": "newOwner",
+		"outputs": [
+			{
+				"name": "",
+				"type": "address"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": false,
+		"inputs": [
+			{
+				"name": "tokenAddress",
+				"type": "address"
+			},
+			{
+				"name": "tokens",
+				"type": "uint256"
+			}
+		],
+		"name": "transferAnyERC20Token",
+		"outputs": [
+			{
+				"name": "success",
+				"type": "bool"
+			}
+		],
+		"payable": false,
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"constant": false,
+		"inputs": [
+			{
+				"name": "_newOwner",
+				"type": "address"
+			}
+		],
+		"name": "transferOwnership",
+		"outputs": [],
+		"payable": false,
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"payable": false,
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	},
+	{
+		"payable": true,
+		"stateMutability": "payable",
+		"type": "fallback"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": false,
+				"name": "tokenGet",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"name": "amountGet",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"name": "tokenGive",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"name": "amountGive",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"name": "expires",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"name": "nonce",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"name": "user",
+				"type": "address"
+			}
+		],
+		"name": "Cancel",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": false,
+				"name": "tokenGet",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"name": "amountGet",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"name": "tokenGive",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"name": "amountGive",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"name": "expires",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"name": "nonce",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"name": "user",
+				"type": "address"
+			}
+		],
+		"name": "Order",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": false,
+				"name": "tokenGet",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"name": "amountGet",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"name": "tokenGive",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"name": "amountGive",
+				"type": "uint256"
+			},
+			{
+				"indexed": false,
+				"name": "get",
+				"type": "address"
+			},
+			{
+				"indexed": false,
+				"name": "give",
+				"type": "address"
+			}
+		],
+		"name": "Trade",
+		"type": "event"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"name": "_from",
+				"type": "address"
+			},
+			{
+				"indexed": true,
+				"name": "_to",
+				"type": "address"
+			}
+		],
+		"name": "OwnershipTransferred",
+		"type": "event"
+	}
+]
