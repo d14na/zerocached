@@ -27,6 +27,9 @@ class Maia {
         /* Initailize Express framework. */
         this.app = express()
 
+        /* Initialize static content folder. */
+        this.app.use(express.static('static'))
+
         /* Initialize endpoints / routes. */
         this.routes = require('../../routes')
 
@@ -69,17 +72,17 @@ class Maia {
      */
     _startAPIServer () {
         this.app.listen(this.portNum, () => {
-            console.log(`ZeroCache Daemon is now listening. [ port: ${this.portNum} ]`)
+            console.log(`ZeroCache Daemon is now listening... [ port: ${this.portNum} ]`)
         })
 
-        // https://cache.0net.io/
-        this.app.get('/', this['routes'].homepage.bind(this))
+        // https://cache.0net.io/v1/limit
+        this.app.get('/v1/limit', this['routes']['limit'].stats.bind(this))
 
-        // https://cache.0net.io/limit/
-        this.app.get('/limit', this['routes']['limit'].stats.bind(this))
+        // https://cache.0net.io/v1/market
+        this.app.get('/v1/market', this['routes']['market'].stats.bind(this))
 
-        // https://cache.0net.io/market/
-        this.app.get('/market', this['routes']['market'].stats.bind(this))
+        // https://cache.0net.io/v1/tx
+        // this.app.get('/v1/tx', this['routes']['tx'].stats.bind(this))
 
         // https://cache.0net.io/approve
         // this.app.get('/approve', this['routes']['exchange'].approve.bind(this))
