@@ -7,7 +7,7 @@ pragma solidity ^0.4.25;
  *
  * ZeroDelta - ZeroCache (DEX) Decentralized Exchange.
  *
- * Version 19.2.15
+ * Version 19.2.16
  *
  * https://d14na.org
  * support@d14na.org
@@ -34,6 +34,56 @@ library SafeMath {
     function div(uint a, uint b) internal pure returns (uint c) {
         require(b > 0);
         c = a / b;
+    }
+}
+
+
+/*******************************************************************************
+ *
+ * ECRecovery
+ *
+ * Contract function to validate signature of pre-approved token transfers.
+ * (borrowed from LavaWallet)
+ */
+library ECRecovery {
+    /**
+     * @dev Recover signer address from a message by using their signature
+     *
+     * @param hash bytes32 The hash of the signed message.
+     * @param sig bytes The signature generated using web3.eth.sign().
+     */
+    function recover(
+        bytes32 hash,
+        bytes sig
+    ) public pure returns (address) {
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+
+        // NOTE: Check the signature length.
+        if (sig.length != 65) {
+            return (address(0));
+        }
+
+        // NOTE: Divide the signature in r, s and v variables.
+        assembly {
+            r := mload(add(sig, 32))
+            s := mload(add(sig, 64))
+            v := byte(0, mload(add(sig, 96)))
+        }
+
+        // NOTE: Version of signature should be 27 or 28,
+        //       but 0 and 1 are also possible versions.
+        if (v < 27) {
+            v += 27;
+        }
+
+        // NOTE: If the version is correct, return the signer address.
+        if (v != 27 && v != 28) {
+            return (address(0));
+        } else {
+            return ecrecover(hash, v, r, s);
+        }
     }
 }
 
@@ -137,56 +187,14 @@ contract Zer0netDbInterface {
 
 /*******************************************************************************
  *
- * ECRecovery
- *
- * Contract function to validate signature of pre-approved token transfers.
- * (borrowed from LavaWallet)
- */
-library ECRecovery {
-    /**
-     * @dev Recover signer address from a message by using their signature
-     *
-     * @param hash bytes32 The hash of the signed message.
-     * @param sig bytes The signature generated using web3.eth.sign().
-     */
-    function recover(bytes32 hash, bytes sig) public pure returns (address) {
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-
-        // NOTE: Check the signature length.
-        if (sig.length != 65) {
-            return (address(0));
-        }
-
-        // NOTE: Divide the signature in r, s and v variables.
-        assembly {
-            r := mload(add(sig, 32))
-            s := mload(add(sig, 64))
-            v := byte(0, mload(add(sig, 96)))
-        }
-
-        // NOTE: Version of signature should be 27 or 28,
-        //       but 0 and 1 are also possible versions.
-        if (v < 27) {
-            v += 27;
-        }
-
-        // NOTE: If the version is correct, return the signer address.
-        if (v != 27 && v != 28) {
-            return (address(0));
-        } else {
-            return ecrecover(hash, v, r, s);
-        }
-    }
-}
-
-
-/*******************************************************************************
- *
  * ZeroCache Interface
  */
 contract ZeroCacheInterface {
+    function balanceOf(
+        address _token,
+        address _owner
+    ) public constant returns (uint balance);
+
     function transfer(
         address sender,
         address receiver,
@@ -233,13 +241,13 @@ contract ZeroDelta is Owned {
     /* Initialize version name. */
     string public version;
 
-    /* Initialize predecessor contract. */
+    /* Initialize predecessor address. */
     address public predecessor;
 
-    /* Initialize successor contract. */
+    /* Initialize successor address. */
     address public successor;
 
-    /* Initialize Zer0net Db contract. */
+    /* Initialize Zer0net Db interface. */
     Zer0netDbInterface private _zer0netDb;
 
     /**
@@ -261,32 +269,35 @@ contract ZeroDelta is Owned {
     mapping (address => mapping (bytes32 => uint)) private _orderFills;
 
     event Cancel(
+        bytes32 indexed market,
         address tokenGet,
         uint amountGet,
         address tokenGive,
         uint amountGive,
         uint expires,
         uint nonce,
-        address user
+        address maker
     );
 
     event Order(
+        bytes32 indexed market,
         address tokenGet,
         uint amountGet,
         address tokenGive,
         uint amountGive,
         uint expires,
         uint nonce,
-        address user
+        address maker
     );
 
     event Trade(
+        bytes32 indexed market,
         address tokenGet,
         uint amountGet,
         address tokenGive,
         uint amountGive,
-        address get,
-        address give
+        address maker,
+        address taker
     );
 
     /***************************************************************************
@@ -294,6 +305,9 @@ contract ZeroDelta is Owned {
      * Constructor
      */
     constructor() public {
+        /* Set version. */
+        version = 'ZeroDelta - Alpha Edition';
+
         /* Initialize Zer0netDb (eternal) storage database contract. */
         // NOTE We hard-code the address here, since it should never change.
         // zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
@@ -334,7 +348,13 @@ contract ZeroDelta is Owned {
 
         _orders[msg.sender][orderHash] = true;
 
+        /* Initialize market. */
+        bytes32 market = keccak256(abi.encodePacked(
+            _tokenGet, _tokenGive));
+
+        /* Broadcast event. */
         emit Order(
+            market,
             _tokenGet,
             _amountGet,
             _tokenGive,
@@ -357,6 +377,7 @@ contract ZeroDelta is Owned {
         uint _nonce,
         bytes _signature
     ) external {
+        /* Calculate order hash. */
         bytes32 hash = keccak256(abi.encodePacked(
             this,
             _tokenGet,
@@ -367,19 +388,29 @@ contract ZeroDelta is Owned {
             _nonce
         ));
 
-        if (!(
-            _orders[msg.sender][hash] ||
-            ECRecovery.recover(keccak256(abi.encodePacked(
-                '\x19Ethereum Signed Message:\n32',
-                hash
-            )), _signature) == msg.sender)
-        ) {
+        /* Retrieve order signer. */
+        address signer = ECRecovery.recover(keccak256(abi.encodePacked(
+            '\x19Ethereum Signed Message:\n32', hash)), _signature);
+
+        /* Validate order signature. */
+        bool validSig = signer == msg.sender;
+
+        /* Validate order. */
+        if (!(_orders[msg.sender][hash] || validSig)) {
             revert('Oops!');
         }
 
+        /* Fill order. */
+        // NOTE: Removes the availability of ALL tokens for trade.
         _orderFills[msg.sender][hash] = _amountGet;
 
+        /* Initialize market. */
+        bytes32 market = keccak256(abi.encodePacked(
+            _tokenGet, _tokenGive));
+
+        /* Broadcast event. */
         emit Cancel(
+            market,
             _tokenGet,
             _amountGet,
             _tokenGive,
@@ -388,6 +419,47 @@ contract ZeroDelta is Owned {
             _nonce,
             msg.sender
         );
+    }
+
+    /**
+     * Trade Simulation
+     *
+     * Validates all trade/order parameters, as if it would
+     * execute on-chain.
+     */
+    function tradeSimulation(
+        address _tokenGet,
+        uint _amountGet,
+        address _tokenGive,
+        uint _amountGive,
+        uint _expires,
+        uint _nonce,
+        address _maker,
+        uint _amount,
+        bytes _signature
+    ) external view returns (bool success) {
+        /* Retrieve balance from ZeroCache. */
+        uint makerBalance = _zeroCache().balanceOf(_tokenGet, _maker);
+
+        /* Retrieve available volume. */
+        uint availableVolume = getAvailableVolume(
+            _tokenGet,
+            _amountGet,
+            _tokenGive,
+            _amountGive,
+            _expires,
+            _nonce,
+            _maker,
+            _signature
+        );
+
+        /* Validate balances. */
+        if (!(makerBalance >= _amount && availableVolume >= _amount)) {
+            return false;
+        }
+
+        /* Return success. */
+        return true;
     }
 
     /**
@@ -400,10 +472,9 @@ contract ZeroDelta is Owned {
         uint _amountGive,
         uint _expires,
         uint _nonce,
-        address _user,
+        address _maker,
         uint _amount,
-        bytes _orderSignature,
-        address _wallet
+        bytes _signature
     ) external {
         /* Calculate encoded order hash. */
         bytes32 orderHash = keccak256(abi.encodePacked(
@@ -416,28 +487,27 @@ contract ZeroDelta is Owned {
             _nonce
         ));
 
-        bytes32 expectedSigHash = keccak256(abi.encodePacked(
+        bytes32 signatureHash = keccak256(abi.encodePacked(
             '\x19Ethereum Signed Message:\n32', orderHash));
 
-        address recoveredSignatureSigner = ECRecovery.recover(
-            expectedSigHash, _orderSignature);
+        address authorizdSigner = ECRecovery.recover(
+            signatureHash, _signature);
 
         if (!(
             // NOTE: There is an on-chain order or an off-chain order.
-            (_orders[_user][orderHash] || recoveredSignatureSigner == _user) &&
+            (_orders[_maker][orderHash] || authorizdSigner == _maker) &&
             block.number <= _expires &&
-            _orderFills[_user][orderHash].add(_amount) <= _amountGet
+            _orderFills[_maker][orderHash].add(_amount) <= _amountGet
         )) {
             revert('Oops!');
         }
 
         _trade(
-            _wallet,
             _tokenGet,
             _amountGet,
             _tokenGive,
             _amountGive,
-            _user,
+            _maker,
             _amount,
             orderHash
         );
@@ -447,27 +517,26 @@ contract ZeroDelta is Owned {
      * Trade
      */
     function _trade(
-        address _wallet,
         address _tokenGet,
         uint _amountGet,
         address _tokenGive,
         uint _amountGive,
-        address _user,
+        address _maker,
         uint _amount,
         bytes32 _orderHash
     ) private {
         /* Update order fills. */
         // WARNING Do this FIRST to safeguard against re-entry attack on the transfers below.
-        _orderFills[_user][_orderHash] = _orderFills[_user][_orderHash].add(_amount);
+        _orderFills[_maker][_orderHash] = _orderFills[_maker][_orderHash].add(_amount);
 
         /* Calculate the (payment) amount for "maker". */
         uint paymentAmount = _amountGive.mul(_amount).div(_amountGet);
 
         /* Transer tokens to "maker". */
         // WARNING Do this BEFORE "taker" transfer to safeguard against a re-entry attack.
-        if (!ZeroCacheInterface(_wallet).transfer(
+        if (!_zeroCache().transfer(
             msg.sender,
-            _user,
+            _maker,
             _tokenGet,
             _amount
         )) {
@@ -476,8 +545,8 @@ contract ZeroDelta is Owned {
 
         /* Transfer tokens to "taker". */
         // WARNING This MUST be the LAST transfer to safeguard against a re-entry attack.
-        if (!ZeroCacheInterface(_wallet).transfer(
-            _user,
+        if (!_zeroCache().transfer(
+            _maker,
             msg.sender,
             _tokenGive,
             paymentAmount
@@ -485,28 +554,33 @@ contract ZeroDelta is Owned {
             revert('Oops!');
         }
 
+        /* Initialize market. */
+        bytes32 market = keccak256(abi.encodePacked(
+            _tokenGet, _tokenGive));
+
         emit Trade(
+            market,
             _tokenGet,
             _amount,
             _tokenGive,
             paymentAmount,
-            _user,
+            _maker,
             msg.sender
         );
     }
 
     /**
-     * (Get) Amount Filled
+     * Get Amount Filled
      */
-    function amountFilled(
+    function getAmountFilled(
         address _tokenGet,
         uint _amountGet,
         address _tokenGive,
         uint _amountGive,
         uint _expires,
         uint _nonce,
-        address _user
-    ) external view returns (uint) {
+        address _maker
+    ) external view returns (uint filled) {
         bytes32 hash = keccak256(abi.encodePacked(
             this,
             _tokenGet,
@@ -517,7 +591,106 @@ contract ZeroDelta is Owned {
             _nonce
         ));
 
-        return _orderFills[_user][hash];
+        /* Retrieve filled. */
+        filled = _orderFills[_maker][hash];
+    }
+
+    /**
+     * Get Available (Order) Volume
+     */
+    function getAvailableVolume(
+        address _tokenGet,
+        uint _amountGet,
+        address _tokenGive,
+        uint _amountGive,
+        uint _expires,
+        uint _nonce,
+        address _maker,
+        bytes _signature
+    ) public view returns (uint balance) {
+        /* Calculate encoded order hash. */
+        bytes32 orderHash = keccak256(abi.encodePacked(
+            this,
+            _tokenGet,
+            _amountGet,
+            _tokenGive,
+            _amountGive,
+            _expires,
+            _nonce
+        ));
+
+        /* Validate order. */
+        bool isValidOrder = _isValidOrder(
+            _maker,
+            orderHash,
+            _expires,
+            _signature
+        );
+
+        /* Validate order. */
+        if (!isValidOrder) {
+            revert('Oops! This order is NOT valid.');
+        }
+
+        /* Retrieve maker balance from ZeroCache. */
+        uint makerBalance = _zeroCache().balanceOf(_tokenGive, _maker);
+
+        /* Calculate order (trade) balance. */
+        uint orderBalance = _amountGet.sub(_orderFills[_maker][orderHash]);
+
+        /* Calculate maker (trade) balance. */
+        uint tradeBalance = makerBalance.mul(_amountGet).div(_amountGive);
+
+        /* Validate available balance. */
+        if (orderBalance < tradeBalance) {
+            balance = orderBalance;
+        } else {
+            balance = tradeBalance;
+        }
+    }
+
+    /**
+     * Is Order Valid
+     */
+    function _isValidOrder(
+        address _maker,
+        bytes32 _orderHash,
+        uint _expires,
+        bytes _signature
+    ) private view returns (bool success) {
+        bytes32 signatureHash = keccak256(abi.encodePacked(
+            '\x19Ethereum Signed Message:\n32', _orderHash));
+
+        address authorizdSigner = ECRecovery.recover(
+            signatureHash, _signature);
+
+        /* Validate order. */
+        bool isValidOrder = (_orders[_maker][_orderHash] || authorizdSigner == _maker);
+
+        if (!(isValidOrder && block.number <= _expires)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * ZeroCache Interface
+     *
+     * Retrieves the current ZeroCache interface,
+     * using the aname record from Zer0netDb.
+     */
+    function _zeroCache() private view returns (
+        ZeroCacheInterface zeroCache
+    ) {
+        /* Initailze hash. */
+        bytes32 hash = keccak256('aname.zerocache');
+
+        /* Retrieve value from Zer0net Db. */
+        address aname = _zer0netDb.getAddress(hash);
+
+        /* Initialize ZeroCache interface. */
+        zeroCache = ZeroCacheInterface(aname);
     }
 
     /**

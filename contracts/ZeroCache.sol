@@ -67,6 +67,56 @@ library SafeMath {
 
 /*******************************************************************************
  *
+ * ECRecovery
+ *
+ * Contract function to validate signature of pre-approved token transfers.
+ * (borrowed from LavaWallet)
+ */
+library ECRecovery {
+    /**
+     * @dev Recover signer address from a message by using their signature
+     *
+     * @param hash bytes32 The hash of the signed message.
+     * @param sig bytes The signature generated using web3.eth.sign().
+     */
+    function recover(
+        bytes32 hash,
+        bytes sig
+    ) public pure returns (address) {
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+
+        // NOTE: Check the signature length.
+        if (sig.length != 65) {
+            return (address(0));
+        }
+
+        // NOTE: Divide the signature in r, s and v variables.
+        assembly {
+            r := mload(add(sig, 32))
+            s := mload(add(sig, 64))
+            v := byte(0, mload(add(sig, 96)))
+        }
+
+        // NOTE: Version of signature should be 27 or 28,
+        //       but 0 and 1 are also possible versions.
+        if (v < 27) {
+            v += 27;
+        }
+
+        // NOTE: If the version is correct, return the signer address.
+        if (v != 27 && v != 28) {
+            return (address(0));
+        } else {
+            return ecrecover(hash, v, r, s);
+        }
+    }
+}
+
+
+/*******************************************************************************
+ *
  * ERC Token Standard #20 Interface
  * https://github.com/ethereum/EIPs/blob/master/EIPS/eip-20-token-standard.md
  */
@@ -181,52 +231,6 @@ contract WETHInterface {
     event  Withdrawal(address indexed src, uint wad);
 }
 
-/*******************************************************************************
- *
- * ECRecovery
- *
- * Contract function to validate signature of pre-approved token transfers.
- * (borrowed from LavaWallet)
- */
-library ECRecovery {
-    /**
-     * @dev Recover signer address from a message by using their signature
-     *
-     * @param hash bytes32 The hash of the signed message.
-     * @param sig bytes The signature generated using web3.eth.sign().
-     */
-    function recover(bytes32 hash, bytes sig) public pure returns (address) {
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-
-        // NOTE: Check the signature length.
-        if (sig.length != 65) {
-            return (address(0));
-        }
-
-        // NOTE: Divide the signature in r, s and v variables.
-        assembly {
-            r := mload(add(sig, 32))
-            s := mload(add(sig, 64))
-            v := byte(0, mload(add(sig, 96)))
-        }
-
-        // NOTE: Version of signature should be 27 or 28,
-        //       but 0 and 1 are also possible versions.
-        if (v < 27) {
-            v += 27;
-        }
-
-        // NOTE: If the version is correct, return the signer address.
-        if (v != 27 && v != 28) {
-            return (address(0));
-        } else {
-            return ecrecover(hash, v, r, s);
-        }
-    }
-}
-
 
 /*******************************************************************************
  *
@@ -248,14 +252,14 @@ library ECRecovery {
 contract ZeroCache is Owned {
     using SafeMath for uint;
 
-    /* Initialize revision number. */
-    uint public revision;
-
     /* Initialize predecessor contract. */
     address public predecessor;
 
     /* Initialize successor contract. */
     address public successor;
+
+    /* Initialize revision number. */
+    uint private _revision;
 
     /* Initialize Zer0net Db contract. */
     Zer0netDbInterface private _zer0netDb;
@@ -298,19 +302,26 @@ contract ZeroCache is Owned {
         uint tokens
     );
 
+    event Debug(
+        address us
+    );
+
     /***************************************************************************
      *
      * Constructor
      */
     constructor() public {
-        /* Set the predecessor contract. */
-        predecessor = 0x0;
+        /* Set predecessor address. */
+        predecessor = 0x49722554d23a1A4549DDCfD68cB40Bbe2323aefC;
 
-        /* Retrieve the last revision number (if available). */
-        uint lastRevision = ZeroCache(predecessor).revision;
+        /* Verify predecessor address. */
+        if (predecessor != 0x0) {
+            /* Retrieve the last revision number (if available). */
+            uint lastRevision = ZeroCache(predecessor).getRevision();
 
-        /* Set (current) revision number. */
-        revision = lastRevision + 1;
+            /* Set (current) revision number. */
+            _revision = lastRevision + 1;
+        }
 
         /* Initialize Zer0netDb (eternal) storage database contract. */
         // NOTE We hard-code the address here, since it should never change.
@@ -334,20 +345,9 @@ contract ZeroCache is Owned {
     modifier onlyAuthBy0Admin() {
         /* Verify write access is only permitted to authorized accounts. */
         require(_zer0netDb.getBool(keccak256(
-            abi.encodePacked(msg.sender, '.has.auth.for.cache'))) == true);
+            abi.encodePacked(msg.sender, '.has.auth.for.zerocache'))) == true);
 
         _;      // function code is inserted here
-    }
-
-    /***************************************************************************
-     *
-     * Get the token balance for account `tokenOwner`
-     */
-    function balanceOf(
-        address _token,
-        address _owner
-    ) external constant returns (uint) {
-        return balances[_token][_owner];
     }
 
     /**
@@ -365,12 +365,12 @@ contract ZeroCache is Owned {
         /* Set hash. */
         bytes32 hash = keccak256('aname.WETH');
 
-        /* Set value in Zer0net Db. */
-        address wethAddress = _zer0netDb.setBytes(hash);
+        /* Retrieve value from Zer0net Db. */
+        address wethAddress = _zer0netDb.getAddress(hash);
 
         /* Validate WETH address. */
         if (wethAddress == 0x0) {
-            assert('Oops! This ANAME has NOT been initialized.');
+            revert('Oops! This ANAME has NOT been initialized.');
         }
 
         /* DO NOT (re-)wrap incoming ETH from Wrapped ETH contract. */
@@ -378,6 +378,10 @@ contract ZeroCache is Owned {
             _wrap();
         }
     }
+
+    /**************************************/
+    /* ACTIONS */
+    /**************************************/
 
     /**
      * Wrap
@@ -394,19 +398,19 @@ contract ZeroCache is Owned {
      */
     function _wrap() private returns (bool success) {
         /* Forward this payable ether into the wrapping contract. */
-        success = address(wethContract).call
+        success = address(_wethContract).call
             .gas(200000)
             .value(msg.value)
             (abi.encodeWithSignature("deposit()"));
 
         /* Increase WETH balance by sent value. */
-        balances[address(wethContract)][msg.sender] = balances[address(wethContract)][msg.sender].add(msg.value);
+        balances[address(_wethContract)][msg.sender] = balances[address(_wethContract)][msg.sender].add(msg.value);
 
         /* Initialize empty data (for event log). */
         bytes memory data;
 
         /* Record to event log. */
-        emit Deposit(address(wethContract), msg.sender, msg.value, data);
+        emit Deposit(address(_wethContract), msg.sender, msg.value, data);
     }
 
     /**
@@ -439,10 +443,10 @@ contract ZeroCache is Owned {
         uint _tokens
     ) private returns (bool success) {
         /* Decrease WETH balance by sent value. */
-        balances[address(wethContract)][_owner] = balances[address(wethContract)][_owner].sub(_tokens);
+        balances[address(_wethContract)][_owner] = balances[address(_wethContract)][_owner].sub(_tokens);
 
         /* Withdraw ETH from Wrapper contract. */
-        success = address(wethContract).call
+        success = address(_wethContract).call
             .gas(200000)
             (abi.encodeWithSignature("withdraw(uint256)", _tokens));
 
@@ -451,7 +455,7 @@ contract ZeroCache is Owned {
 
         /* Record to event log. */
         emit Withdraw(
-            address(wethContract),
+            address(_wethContract),
             address(_owner),
             _tokens
         );
@@ -619,34 +623,31 @@ contract ZeroCache is Owned {
         uint _nonce,            // unique integer
         bytes _signature        // signed message
     ) external returns (bool success) {
-        /* Calculate the signature hash. */
-        bytes32 sigHash = keccak256(abi.encodePacked(
-            "\x19Ethereum Signed Message:\n224",
-            keccak256(abi.encodePacked(address(this))),
-            keccak256(abi.encodePacked(_token)),
-            keccak256(abi.encodePacked(_from)),
-            keccak256(abi.encodePacked(_to)),
-            keccak256(abi.encodePacked(_tokens)),
-            keccak256(abi.encodePacked(_boostProvider)),
-            keccak256(abi.encodePacked(_boostFee)),
-            keccak256(abi.encodePacked(_expires)),
-            keccak256(abi.encodePacked(_nonce))
+        /* Calculate transfer hash. */
+        bytes32 transferHash = keccak256(abi.encodePacked(
+            address(this),
+            _token,
+            _from,
+            _to,
+            _tokens,
+            _boostProvider,
+            _boostFee,
+            _expires,
+            _nonce
         ));
 
-        /* Validate the expiration time. */
-        if (block.number > _expires) revert();
+        /* Validate transfer. */
+        bool isValidTransfer = _isValidTransfer(
+            address(this),
+            transferHash,
+            _expires,
+            _signature
+        );
 
-        /* Validate signature expiration. */
-        if (expiredSignatures[sigHash]) revert();
-
-        /* Set expiration flag. */
-        expiredSignatures[sigHash] = true;
-
-        /* Retrieve the authorized account (address). */
-        address authorizedAccount = ECRecovery.recover(sigHash, _signature);
-
-        /* Validate the signer matches owner of the tokens. */
-        if (_from != authorizedAccount) revert();
+        /* Validate transfer. */
+        if (!isValidTransfer) {
+            revert('Oops! This transfer is NOT valid.');
+        }
 
         /* Validate boost fee and pay (if necessary). */
         if (_boostFee > 0) {
@@ -683,6 +684,45 @@ contract ZeroCache is Owned {
     }
 
     /**
+     * Transfer Multiple Tokens (w/ Single Transaction)
+     *
+     * NOTE: This feature is not yet implemented (publicly).
+     */
+    function _multiTransfer(
+        address _sender,
+        address[] _receiver,
+        address[] _token,
+        uint[] _tokens
+    ) private returns (bool success) {
+        /* Loop through all receivers. */
+        for (uint i = 0; i < _receiver.length; i++) {
+            /* Set token. */
+            address token = _token[i];
+
+            /* Set token value. */
+            uint tokens = _tokens[i];
+
+            /* Set receiver. */
+            address receiver = _receiver[i];
+
+            /* Make transfer. */
+            ERC20Interface(token).transfer(receiver, tokens);
+
+            /* Remove the transfer value from sender's balance. */
+            balances[token][_sender] = balances[token][_sender].sub(tokens);
+
+            /* Add the transfer value to the receiver's balance. */
+            balances[token][receiver] = balances[token][receiver].add(tokens);
+
+            /* Report the transfer. */
+            emit Transfer(token, _sender, receiver, tokens);
+        }
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
      * Pay Boost Fee (private)
      *
      * This is an (optional) fee paid by the sender, which
@@ -695,16 +735,16 @@ contract ZeroCache is Owned {
         uint _tokens
     ) private returns (bool success) {
         /* Validate available balance. */
-        if (balances[zeroGold][_sender] < _tokens) revert();
+        if (balances[_zeroGold][_sender] < _tokens) revert();
 
         /* Decrease owner's balance by token amount. */
-        balances[zeroGold][_sender] = balances[zeroGold][_sender].sub(_tokens);
+        balances[_zeroGold][_sender] = balances[_zeroGold][_sender].sub(_tokens);
 
         /* Transfer specified tokens to boost account. */
-        ERC20Interface(zeroGold).transfer(_provider, _tokens);
+        ERC20Interface(_zeroGold).transfer(_provider, _tokens);
 
         /* Record to event log. */
-        emit Transfer(zeroGold, _sender, _provider, _tokens);
+        emit Transfer(_zeroGold, _sender, _provider, _tokens);
 
         /* Return success. */
         return true;
@@ -784,7 +824,7 @@ contract ZeroCache is Owned {
         uint balance = balances[token][_owner];
 
         /* Pull latest instance address from Zer0net Db. */
-        address latestCache = zer0netDb.getAddress(
+        address latestCache = _zer0netDb.getAddress(
             keccak256('zerocache.latest'));
 
         /* Reduce owner's balance to zero. */
@@ -809,8 +849,46 @@ contract ZeroCache is Owned {
         return true;
     }
 
+    /**
+     * Is Order Transfer
+     */
+    function _isValidTransfer(
+        address _from,
+        bytes32 _transferHash,
+        uint _expires,
+        bytes _signature
+    ) private returns (bool success) {
+        /* Calculate signature hash. */
+        bytes32 sigHash = keccak256(abi.encodePacked(
+            '\x19Ethereum Signed Message:\n32', _transferHash));
+
+        /* Set expiration flag. */
+        // NOTE: Set a flag here to prevent double-spending.
+        expiredSignatures[sigHash] = true;
+
+        /* Validate the expiration time. */
+        if (block.number > _expires) {
+            return false;
+        }
+
+        /* Validate signature expiration. */
+        if (expiredSignatures[sigHash]) {
+            return false;
+        }
+
+        /* Retrieve the authorized account (address). */
+        address authorizedAccount = ECRecovery.recover(sigHash, _signature);
+
+        /* Validate the signer matches owner of the tokens. */
+        if (_from != authorizedAccount) {
+            return false;
+        }
+
+        return true;
+    }
+
     function _isAccountOpen(
-        address _account
+        // address _account
     ) private pure returns (bool success) {
         // TODO
         // 1. Check `mapping(address => bool) _accountStatus`
@@ -828,7 +906,7 @@ contract ZeroCache is Owned {
      * is permitted to take place for this account.
      */
     function _closeAccount(
-        address _account
+        // address _account
     ) private pure returns (bool success) {
         // TODO
         // 1. Validate no tokens exist.
@@ -837,6 +915,31 @@ contract ZeroCache is Owned {
         /* Return success. */
         return true;
     }
+
+
+    /**************************************/
+    /* GETTERS */
+    /**************************************/
+
+    /***************************************************************************
+     *
+     * Get the token balance for account `tokenOwner`
+     */
+    function balanceOf(
+        address _token,
+        address _owner
+    ) external constant returns (uint balance) {
+        /* Retrieve balance. */
+        balance = balances[_token][_owner];
+    }
+
+    /**
+     * Get Revision (Number)
+     */
+    function getRevision() public view returns (uint) {
+        return _revision;
+    }
+
 
     /**************************************/
     /* SETTERS */
@@ -869,6 +972,27 @@ contract ZeroCache is Owned {
         address tokenAddress, uint tokens
     ) external onlyOwner returns (bool success) {
         return ERC20Interface(tokenAddress).transfer(owner, tokens);
+    }
+
+    /**
+     * Is (Owner) Contract
+     *
+     * Tests if a specified account / address is a contract.
+     */
+    function _ownerIsContract(
+        address _owner
+    ) private view returns (bool isContract) {
+        /* Initialize code length. */
+        uint codeLength;
+
+        /* Run assembly. */
+        assembly {
+            /* Retrieve the size of the code on target address. */
+            codeLength := extcodesize(_owner)
+        }
+
+        /* Set test result. */
+        isContract = (codeLength > 0);
     }
 
     /**
