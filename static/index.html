@@ -18,7 +18,50 @@
 const markdown = `
 # ZeroCache Wallet API (alpha)
 
+### Simple API for ZeroCache Wallet users to send and receive ERC tokens.
+
 [click here for more info](https://zerocache.info)
+
+The Base URL for all requests:
+
+### \`https://cache.0net.io/\`
+
+---
+
+## Making Outgoing Payments
+
+Send an ERC token from your wallet to another wallet address.
+
+\`https://cache.0net.io/transfer\`
+
+#### JSON Body
+
+\`\`\`
+{
+    address _token,         // contract address
+    address _from,          // sender's address
+    address _to,            // receiver's address
+    uint _tokens,           // quantity of tokens
+    address _boostProvider, // boost service provider
+    uint _boostFee,         // boost fee
+    uint _expires,          // expiration time
+    uint _nonce,            // unique integer
+    bytes _signature        // signed message
+}
+\`\`\`
+
+#### Returns
+
+\`(bool success)\`
+
+---
+
+## Fetching the wallet balance
+
+Fetch the balance of a wallet.
+
+\`https://cache.0net.io/balance/[wallet-address]\`
+
 `
 
 /* Set markdown body to HTML content. */

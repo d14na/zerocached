@@ -1,5 +1,4 @@
 env:
-    # commonjs: true
     shared-node-browser: true
 parserOptions:
     ecmaVersion: 9
