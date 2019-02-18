@@ -34,7 +34,7 @@ pragma solidity ^0.4.25;
  *             For more information, please visit:
  *             https://0net.io/zerocache.bit
  *
- * Version 19.2.12
+ * Version 19.2.17
  *
  * https://d14na.org
  * support@d14na.org
@@ -242,12 +242,12 @@ contract WETHInterface {
  *
  * @dev In conjunction with the ZeroCache Daemon, this contract manages the
  *      ability to dynamically allocate the assets of a "smart" crypto wallet,
- *      in real-time, based  on a user's pre-selected financial profile.
+ *      in real-time, based on a user's pre-selected financial profile.
  *
  *      Initial support for the following cryptos:
- *          - Ethereum (ETH)   : Virtual machine gas/fuel
- *          - MakerDAO (DAI)   : Stable coin
- *          - ZeroGold (0GOLD) : Staek token
+ *          - Ethereum (WETH)  : Wrapped Ether (used for on-chain gas/fuel)
+ *          - MakerDAO (DAI)   : Stable coin (used for e-commerce)
+ *          - ZeroGold (0GOLD) : Staek token (used for collateral)
  */
 contract ZeroCache is Owned {
     using SafeMath for uint;
@@ -264,17 +264,11 @@ contract ZeroCache is Owned {
     /* Initialize Zer0net Db contract. */
     Zer0netDbInterface private _zer0netDb;
 
-    /* Initialize ZeroGold contract. */
-    ERC20Interface private _zeroGold;
-
-    /* Initialize Wrapped ETH (WETH) contract. */
-    WETHInterface private _wethContract;
-
     /* Initialize account balances. */
-    mapping(address => mapping (address => uint)) balances;
+    mapping(address => mapping (address => uint)) private _balances;
 
     /* Initialize expired signature flags. */
-    mapping(bytes32 => bool) expiredSignatures;
+    mapping(bytes32 => bool) private _expiredSignatures;
 
     event Deposit(
         address indexed token,
@@ -312,7 +306,7 @@ contract ZeroCache is Owned {
      */
     constructor() public {
         /* Set predecessor address. */
-        predecessor = 0x49722554d23a1A4549DDCfD68cB40Bbe2323aefC;
+        predecessor = 0x79e0FCF937843E58C84eF491AF394BA8835Aa098;
 
         /* Verify predecessor address. */
         if (predecessor != 0x0) {
@@ -327,16 +321,6 @@ contract ZeroCache is Owned {
         // NOTE We hard-code the address here, since it should never change.
         // zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
         _zer0netDb = Zer0netDbInterface(0x4C2f68bCdEEB88764b1031eC330aD4DF8d6F64D6); // ROPSTEN
-
-        /* Set the ZeroGold fee account address. */
-        // NOTE We hard-code the address here, since it should never change.
-        // zeroGold = 0x6ef5bca539A4A01157af842B4823F54F9f7E9968;
-        // zeroGold = 0x079F89645eD85b85a475BF2bdc82c82f327f2932; // ROPSTEN
-
-        /* Initialize Wrapped ETH (WETH) contract. */
-        // NOTE We hard-code the address here, since it should never change.
-        // wethContract = WrapperInterface(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
-        // wethContract = WETHInterface(0xc778417E063141139Fce010982780140Aa0cD5Ab); // ROPSTEN
     }
 
     /**
@@ -379,9 +363,11 @@ contract ZeroCache is Owned {
         }
     }
 
-    /**************************************/
-    /* ACTIONS */
-    /**************************************/
+    /***************************************************************************
+     *
+     * ACTIONS
+     *
+     */
 
     /**
      * Wrap
@@ -397,20 +383,31 @@ contract ZeroCache is Owned {
      * Wrap (private)
      */
     function _wrap() private returns (bool success) {
+        /* Set WETH address. */
+        address wethAddress = _weth();
+
         /* Forward this payable ether into the wrapping contract. */
-        success = address(_wethContract).call
+        success = wethAddress.call
             .gas(200000)
             .value(msg.value)
             (abi.encodeWithSignature("deposit()"));
 
+        /* Calculate new balance. */
+        uint newBalance = _balances[wethAddress][msg.sender].add(msg.value);
+
         /* Increase WETH balance by sent value. */
-        balances[address(_wethContract)][msg.sender] = balances[address(_wethContract)][msg.sender].add(msg.value);
+        _balances[wethAddress][msg.sender] = newBalance;
 
         /* Initialize empty data (for event log). */
         bytes memory data;
 
-        /* Record to event log. */
-        emit Deposit(address(_wethContract), msg.sender, msg.value, data);
+        /* Broadcast event. */
+        emit Deposit(
+            wethAddress,
+            msg.sender,
+            msg.value,
+            data
+        );
     }
 
     /**
@@ -442,11 +439,14 @@ contract ZeroCache is Owned {
         address _owner,
         uint _tokens
     ) private returns (bool success) {
+        /* Set WETH address. */
+        address wethAddress = _weth();
+
         /* Decrease WETH balance by sent value. */
-        balances[address(_wethContract)][_owner] = balances[address(_wethContract)][_owner].sub(_tokens);
+        _balances[wethAddress][_owner] = _balances[wethAddress][_owner].sub(_tokens);
 
         /* Withdraw ETH from Wrapper contract. */
-        success = address(_wethContract).call
+        success = wethAddress.call
             .gas(200000)
             (abi.encodeWithSignature("withdraw(uint256)", _tokens));
 
@@ -455,8 +455,8 @@ contract ZeroCache is Owned {
 
         /* Record to event log. */
         emit Withdraw(
-            address(_wethContract),
-            address(_owner),
+            wethAddress,
+            _owner,
             _tokens
         );
     }
@@ -526,7 +526,7 @@ contract ZeroCache is Owned {
         ERC20Interface(_token).transferFrom(_from, address(this), _tokens);
 
         /* Increase the owner's cache balance. */
-        balances[_token][_from] = balances[_token][_from].add(_tokens);
+        _balances[_token][_from] = _balances[_token][_from].add(_tokens);
 
         /* Record to event log. */
         emit Deposit(_token, _from, _tokens, _data);
@@ -565,10 +565,10 @@ contract ZeroCache is Owned {
         uint _tokens
     ) private returns (bool success) {
         /* Validate available balance. */
-        if (balances[_token][_owner] < _tokens) revert();
+        if (_balances[_token][_owner] < _tokens) revert();
 
         /* Decrease owner's balance by token amount. */
-        balances[_token][_owner] = balances[_token][_owner].sub(_tokens);
+        _balances[_token][_owner] = _balances[_token][_owner].sub(_tokens);
 
         /* Transfer requested tokens to owner. */
         ERC20Interface(_token).transfer(_owner, _tokens);
@@ -638,7 +638,7 @@ contract ZeroCache is Owned {
 
         /* Validate transfer. */
         bool isValidTransfer = _isValidTransfer(
-            address(this),
+            _from,
             transferHash,
             _expires,
             _signature
@@ -671,13 +671,18 @@ contract ZeroCache is Owned {
         uint _tokens
     ) private returns (bool success) {
         /* Remove the transfer value from sender's balance. */
-        balances[_token][_sender] = balances[_token][_sender].sub(_tokens);
+        _balances[_token][_sender] = _balances[_token][_sender].sub(_tokens);
 
         /* Add the transfer value to the receiver's balance. */
-        balances[_token][_receiver] = balances[_token][_receiver].add(_tokens);
+        _balances[_token][_receiver] = _balances[_token][_receiver].add(_tokens);
 
-        /* Report the transfer. */
-        emit Transfer(_token, _sender, _receiver, _tokens);
+        /* Broadcast event. */
+        emit Transfer(
+            _token,
+            _sender,
+            _receiver,
+            _tokens
+        );
 
         /* Return success. */
         return true;
@@ -709,13 +714,18 @@ contract ZeroCache is Owned {
             ERC20Interface(token).transfer(receiver, tokens);
 
             /* Remove the transfer value from sender's balance. */
-            balances[token][_sender] = balances[token][_sender].sub(tokens);
+            _balances[token][_sender] = _balances[token][_sender].sub(tokens);
 
             /* Add the transfer value to the receiver's balance. */
-            balances[token][receiver] = balances[token][receiver].add(tokens);
+            _balances[token][receiver] = _balances[token][receiver].add(tokens);
 
-            /* Report the transfer. */
-            emit Transfer(token, _sender, receiver, tokens);
+            /* Boradcast event. */
+            emit Transfer(
+                token,
+                _sender,
+                receiver,
+                tokens
+            );
         }
 
         /* Return success. */
@@ -734,17 +744,25 @@ contract ZeroCache is Owned {
         address _provider,
         uint _tokens
     ) private returns (bool success) {
+        /* Set ZeroGold address. */
+        address zgAddress = _zeroGold();
+
         /* Validate available balance. */
-        if (balances[_zeroGold][_sender] < _tokens) revert();
+        if (_balances[zgAddress][_sender] < _tokens) revert();
 
         /* Decrease owner's balance by token amount. */
-        balances[_zeroGold][_sender] = balances[_zeroGold][_sender].sub(_tokens);
+        _balances[zgAddress][_sender] = _balances[zgAddress][_sender].sub(_tokens);
 
         /* Transfer specified tokens to boost account. */
-        ERC20Interface(_zeroGold).transfer(_provider, _tokens);
+        _zeroGold().transfer(_provider, _tokens);
 
-        /* Record to event log. */
-        emit Transfer(_zeroGold, _sender, _provider, _tokens);
+        /* Broadcast event. */
+        emit Transfer(
+            zgAddress,
+            _sender,
+            _provider,
+            _tokens
+        );
 
         /* Return success. */
         return true;
@@ -757,50 +775,58 @@ contract ZeroCache is Owned {
      * by invalidating the signature on-chain.
      */
     function cancel(
-        address _to,
-        uint _tokens,
-        address _token,
-        uint _expires,
-        uint _nonce
+        address _token,         // contract address
+        address _from,          // sender's address
+        address _to,            // receiver's address
+        uint _tokens,           // quantity of tokens
+        address _boostProvider, // boost service provider
+        uint _boostFee,         // boost fee
+        uint _expires,          // expiration time
+        uint _nonce             // unique integer
     ) external returns (bool success) {
-        /* Calculate the signature hash. */
-        bytes32 sigHash = keccak256(abi.encodePacked(
-            "\x19Ethereum Signed Message:\n32",
+        /* Calculate the transfer hash. */
+        bytes32 tansferHash = keccak256(abi.encodePacked(
             address(this),
-            msg.sender,
-            _to,
             _token,
+            _from,
+            _to,
             _tokens,
+            _boostProvider,
+            _boostFee,
             _expires,
             _nonce
         ));
 
+        /* Calculate the signature hash. */
+        bytes32 sigHash = keccak256(abi.encodePacked(
+            "\x19Ethereum Signed Message:\n32", tansferHash));
+
         /* Set expiration flag. */
-        expiredSignatures[sigHash] = true;
+        _expiredSignatures[sigHash] = true;
 
         /* Return success. */
         return true;
     }
 
     /**
-     * Sweep
+     * Migrate
      */
-    function sweep(
+    function migrate(
         address[] _tokens,
         bool _preApproved
     ) external returns (bool success) {
-        return _sweep(msg.sender, _tokens, _preApproved);
+        return _migrate(msg.sender, _tokens, _preApproved);
     }
 
     /**
      * Sweep (Administrators ONLY)
      */
-    function sweep(
+    function migrate(
         address _owner,
         address[] _tokens,
         bool _preApproved
     ) onlyAuthBy0Admin external returns (bool success) {
-        return _sweep(_owner, _tokens, _preApproved);
+        return _migrate(_owner, _tokens, _preApproved);
     }
 
     /**
@@ -811,7 +837,7 @@ contract ZeroCache is Owned {
      *
      * NOTE: Account value read from the Zer0net Db `zerocache.latest`.
      */
-    function _sweep(
+    function _migrate(
         address _owner,
         address[] _tokens,
         bool _preApproved
@@ -821,7 +847,7 @@ contract ZeroCache is Owned {
         address token = _tokens[0];
 
         /* Retrieve available balance. */
-        uint balance = balances[token][_owner];
+        uint balance = _balances[token][_owner];
 
         /* Pull latest instance address from Zer0net Db. */
         address latestCache = _zer0netDb.getAddress(
@@ -850,7 +876,7 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * Is Order Transfer
+     * Is Valid Transfer
      */
     function _isValidTransfer(
         address _from,
@@ -862,17 +888,17 @@ contract ZeroCache is Owned {
         bytes32 sigHash = keccak256(abi.encodePacked(
             '\x19Ethereum Signed Message:\n32', _transferHash));
 
-        /* Set expiration flag. */
-        // NOTE: Set a flag here to prevent double-spending.
-        expiredSignatures[sigHash] = true;
-
-        /* Validate the expiration time. */
-        if (block.number > _expires) {
+        /* Validate signature expiration. */
+        if (_expiredSignatures[sigHash]) {
             return false;
         }
 
-        /* Validate signature expiration. */
-        if (expiredSignatures[sigHash]) {
+        /* Set expiration flag. */
+        // NOTE: Set a flag here to prevent double-spending.
+        _expiredSignatures[sigHash] = true;
+
+        /* Validate the expiration time. */
+        if (block.number > _expires) {
             return false;
         }
 
@@ -884,6 +910,7 @@ contract ZeroCache is Owned {
             return false;
         }
 
+        /* Return success. */
         return true;
     }
 
@@ -917,9 +944,18 @@ contract ZeroCache is Owned {
     }
 
 
-    /**************************************/
-    /* GETTERS */
-    /**************************************/
+    /***************************************************************************
+     *
+     * GETTERS
+     *
+     */
+
+    /**
+     * Get Revision (Number)
+     */
+    function getRevision() public view returns (uint) {
+        return _revision;
+    }
 
     /***************************************************************************
      *
@@ -930,20 +966,15 @@ contract ZeroCache is Owned {
         address _owner
     ) external constant returns (uint balance) {
         /* Retrieve balance. */
-        balance = balances[_token][_owner];
+        balance = _balances[_token][_owner];
     }
 
-    /**
-     * Get Revision (Number)
+
+    /***************************************************************************
+     *
+     * SETTERS
+     *
      */
-    function getRevision() public view returns (uint) {
-        return _revision;
-    }
-
-
-    /**************************************/
-    /* SETTERS */
-    /**************************************/
 
     /**
      * Set Successor
@@ -960,19 +991,79 @@ contract ZeroCache is Owned {
         return true;
     }
 
-    /**
-     * Transfer Any ERC20 Token
+
+    /***************************************************************************
      *
-     * @notice Owner can transfer out any accidentally sent ERC20 tokens.
+     * INTERFACES
      *
-     * @dev Provides an ERC20 interface, which allows for the recover
-     *      of any accidentally sent ERC20 tokens.
      */
-    function transferAnyERC20Token(
-        address tokenAddress, uint tokens
-    ) external onlyOwner returns (bool success) {
-        return ERC20Interface(tokenAddress).transfer(owner, tokens);
+
+    /**
+     * Wrapped Ether (WETH) Interface
+     *
+     * Retrieves the current WETH interface,
+     * using the aname record from Zer0netDb.
+     */
+    function _weth() private view returns (
+        WETHInterface weth
+    ) {
+        /* Initailze hash. */
+        // NOTE: ERC tokens are case-sensitive.
+        bytes32 hash = keccak256('aname.WETH');
+
+        /* Retrieve value from Zer0net Db. */
+        address aname = _zer0netDb.getAddress(hash);
+
+        /* Initialize interface. */
+        weth = WETHInterface(aname);
     }
+
+    /**
+     * MakerDAO DAI Interface
+     *
+     * Retrieves the current DAI interface,
+     * using the aname record from Zer0netDb.
+     */
+    function _dai() private view returns (
+        ERC20Interface dai
+    ) {
+        /* Initailze hash. */
+        // NOTE: ERC tokens are case-sensitive.
+        bytes32 hash = keccak256('aname.DAI');
+
+        /* Retrieve value from Zer0net Db. */
+        address aname = _zer0netDb.getAddress(hash);
+
+        /* Initialize interface. */
+        dai = ERC20Interface(aname);
+    }
+
+    /**
+     * ZeroGold Interface
+     *
+     * Retrieves the current ZeroGold interface,
+     * using the aname record from Zer0netDb.
+     */
+    function _zeroGold() private view returns (
+        ERC20Interface zeroGold
+    ) {
+        /* Initailze hash. */
+        // NOTE: ERC tokens are case-sensitive.
+        bytes32 hash = keccak256('aname.0GOLD');
+
+        /* Retrieve value from Zer0net Db. */
+        address aname = _zer0netDb.getAddress(hash);
+
+        /* Initialize interface. */
+        zeroGold = ERC20Interface(aname);
+    }
+
+
+    /***************************************************************************
+     *
+     * UTILITIES
+     *
+     */
 
     /**
      * Is (Owner) Contract
@@ -1011,5 +1102,20 @@ contract ZeroCache is Owned {
         }
 
         return address(m);
+    }
+
+    /**
+     * Transfer Any ERC20 Token
+     *
+     * @notice Owner can transfer out any accidentally sent ERC20 tokens.
+     *
+     * @dev Provides an ERC20 interface, which allows for the recover
+     *      of any accidentally sent ERC20 tokens.
+     */
+    function transferAnyERC20Token(
+        address _tokenAddress,
+        uint _tokens
+    ) public onlyOwner returns (bool success) {
+        return ERC20Interface(_tokenAddress).transfer(owner, _tokens);
     }
 }

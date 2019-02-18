@@ -50,39 +50,11 @@ module.exports = function (req, res) {
 
                 console.log('RESULT', _result)
 
-                const sigHash = web3.utils.soliditySha3(
-                    { t: 'address', v: contractAddress },
-                    { t: 'address', v: '0x079F89645eD85b85a475BF2bdc82c82f327f2932' },
-                    { t: 'address', v: '0xe5Fe2e0Ec02bB85d0655CA6Cf4E23824fAD285DC' },
-                    { t: 'address', v: '0xb07d84f2c5d8be1f4a440173bc536e0b2ee3b05e' },
-                    { t: 'uint256', v: '8880000' },
-                    { t: 'bytes'  , v: '0x0000000000000000000000000000000000000000' }, // same as address, but w/out checksum
-                    { t: 'uint256', v: '0' },
-                    { t: 'uint256', v: '5046541' },
-                    { t: 'uint256', v: '0' }
-                )
-
-                // const sig = web3.utils.soliditySha3(
-                //     { t: 'string', v: 'Hello!%' },
-                //     { t: 'uint256', v:-23 },
-                //     { t: 'address', v: '0x85F43D8a49eeB85d32Cf465507DD71d507100C1d' }
-                // )
-                //
-                console.log('SIGNATURE HASH', sigHash)
-
-                let privateKey = '0xbc2cd411934c8bf2502a26af1c3c116a932e99e27051bfe6439c8747cf91b3a5'
-                const sig = web3.eth.accounts.sign(sigHash, privateKey)
-
-                console.log('SIGNATURE', sig.signature)
-
                 let pkg = {
-                    sigHash,
-                    sig,
                     balance: _result,
                     bricks: parseInt(_result / 100000000)
                 }
 
                 res.json(pkg)
             })
-
 }
