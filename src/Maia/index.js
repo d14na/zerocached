@@ -30,6 +30,9 @@ class Maia {
         /* Initialize static content folder. */
         this.app.use(express.static('static'))
 
+        /* Initialize JSON body handler. */
+        this.app.use(express.json())
+
         /* Initialize endpoints / routes. */
         this.routes = require('../../routes')
 
@@ -81,8 +84,11 @@ class Maia {
         // https://cache.0net.io/v1/market
         this.app.get('/v1/market', this['routes']['market'].stats.bind(this))
 
-        // https://cache.0net.io/v1/tx
-        // this.app.get('/v1/tx', this['routes']['tx'].stats.bind(this))
+        // https://cache.0net.io/v1/transfer
+        this.app.get('/v1/transfer', this['routes']['transfer'].stats.bind(this))
+
+        // https://cache.0net.io/v1/transfer
+        this.app.post('/v1/transfer', this['routes']['transfer'].relay.bind(this))
 
         // https://cache.0net.io/approve
         // this.app.get('/approve', this['routes']['exchange'].approve.bind(this))
