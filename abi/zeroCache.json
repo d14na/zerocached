@@ -613,18 +613,6 @@
 		"anonymous": false,
 		"inputs": [
 			{
-				"indexed": false,
-				"name": "us",
-				"type": "address"
-			}
-		],
-		"name": "Debug",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{
 				"indexed": true,
 				"name": "_from",
 				"type": "address"

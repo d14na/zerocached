@@ -34,7 +34,7 @@ pragma solidity ^0.4.25;
  *             For more information, please visit:
  *             https://0net.io/zerocache.bit
  *
- * Version 19.2.17
+ * Version 19.2.19
  *
  * https://d14na.org
  * support@d14na.org
@@ -245,9 +245,10 @@ contract WETHInterface {
  *      in real-time, based on a user's pre-selected financial profile.
  *
  *      Initial support for the following cryptos:
- *          - Ethereum (WETH)  : Wrapped Ether (used for on-chain gas/fuel)
- *          - MakerDAO (DAI)   : Stable coin (used for e-commerce)
- *          - ZeroGold (0GOLD) : Staek token (used for collateral)
+ *          - Ethereum (WETH)   : Wrapped Ether (used for on-chain gas/fuel)
+ *          - MakerDAO (DAI)    : Stable coin (used for e-commerce)
+ *          - ZeroGold (0GOLD)  : Staek token (used for collateral)
+ *          - 0xBitcoin (0xBTC) : Premier mineable token (test extended support)
  */
 contract ZeroCache is Owned {
     using SafeMath for uint;
@@ -296,17 +297,13 @@ contract ZeroCache is Owned {
         uint tokens
     );
 
-    event Debug(
-        address us
-    );
-
     /***************************************************************************
      *
      * Constructor
      */
     constructor() public {
         /* Set predecessor address. */
-        predecessor = 0x79e0FCF937843E58C84eF491AF394BA8835Aa098;
+        predecessor = 0xA6CB833eA8127Aa628152720b622F6B4d002fCD8;
 
         /* Verify predecessor address. */
         if (predecessor != 0x0) {
@@ -344,21 +341,46 @@ contract ZeroCache is Owned {
      *     - Kovan   : 0xd0A1E359811322d97991E03f863a0C30C2cF029C
      *     - Rinkeby : 0xc778417E063141139Fce010982780140Aa0cD5Ab
      * (source https://blog.0xproject.com/canonical-weth-a9aa7d0279dd)
+     *
+     * NOTE: We are forced to hard-code all possible network contract
+     *       (addresses) into this fallback since the WETH contract
+     *       DOES NOT provide enough gas for us to lookup the
+     *       specific address for our network.
+     *
+     * NOTE: This contract requires ~50k gas to wrap ETH using
+     *       the fallback/wrap functions. However, it will
+     *       require ~80k to initialize on first-use.
      */
     function () public payable {
-        /* Set hash. */
-        bytes32 hash = keccak256('aname.WETH');
+        /* Initialize WETH contract flag. */
+        bool isWethContract = false;
 
-        /* Retrieve value from Zer0net Db. */
-        address wethAddress = _zer0netDb.getAddress(hash);
+        /* Initialize WETH contracts array. */
+        address[4] memory contracts;
 
-        /* Validate WETH address. */
-        if (wethAddress == 0x0) {
-            revert('Oops! This ANAME has NOT been initialized.');
+        /* Set Mainnet. */
+        contracts[0] = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+
+        /* Set Ropsten. */
+        contracts[1] = 0xc778417E063141139Fce010982780140Aa0cD5Ab;
+
+        /* Set Kovan. */
+        contracts[2] = 0xd0A1E359811322d97991E03f863a0C30C2cF029C;
+
+        /* Set Rinkeby. */
+        contracts[3] = 0xc778417E063141139Fce010982780140Aa0cD5Ab;
+
+        /* Loop through all network contracts. */
+        for (uint i = 0; i < contracts.length; i++) {
+            /* Validate sender. */
+            if (msg.sender == contracts[i]) {
+                /* Set flag. */
+                isWethContract = true;
+            }
         }
 
         /* DO NOT (re-)wrap incoming ETH from Wrapped ETH contract. */
-        if (msg.sender != wethAddress) {
+        if (!isWethContract) {
             _wrap();
         }
     }
@@ -442,6 +464,11 @@ contract ZeroCache is Owned {
         /* Set WETH address. */
         address wethAddress = _weth();
 
+        /* Validate balance. */
+        if (_balances[wethAddress][_owner] < _tokens) {
+            revert('Oops! You DO NOT have enough WETH.');
+        }
+
         /* Decrease WETH balance by sent value. */
         _balances[wethAddress][_owner] = _balances[wethAddress][_owner].sub(_tokens);
 
@@ -476,6 +503,7 @@ contract ZeroCache is Owned {
         uint _tokens,
         bytes _data
     ) external returns (bool success) {
+        /* Make deposit. */
         return _deposit(_token, _from, _tokens, _data);
     }
 
@@ -483,6 +511,9 @@ contract ZeroCache is Owned {
      * Receive Approval
      *
      * Will typically be called from `approveAndCall`.
+     *
+     * NOTE: Owner can assign ANY address to receive the deposit
+     *       (including their own). By default, owner will be used.
      */
     function receiveApproval(
         address _from,
@@ -490,23 +521,7 @@ contract ZeroCache is Owned {
         address _token,
         bytes _data
     ) public returns (bool success) {
-        // TODO Payload actions are not yet implemented.
-        // parse the data: first byte is for action id.
-        // byte actionId = _data[0];
-
-        /**
-         * If `_data` is an `address`, then set the value to `from`.
-         * e.g. when `approveAndCall` is made from a contract (representing the owner).
-         */
-        if (_data.length == 20) {
-            /* Retrieve the receiver's address from the (data) payload. */
-            address receiver = _bytesToAddress(_data);
-
-            /* NOTE: Deposit credited to `_data` address. */
-            return _deposit(_token, receiver, _tokens, _data);
-        }
-
-        /* NOTE: Deposit credited to `msg.sender`. */
+        /* Make deposit. */
         return _deposit(_token, _from, _tokens, _data);
     }
 
@@ -525,11 +540,26 @@ contract ZeroCache is Owned {
         /* Transfer the ERC-20 tokens into Cache. */
         ERC20Interface(_token).transferFrom(_from, address(this), _tokens);
 
-        /* Increase the owner's cache balance. */
-        _balances[_token][_from] = _balances[_token][_from].add(_tokens);
+        /* Initialize receiver (address). */
+        address receiver = 0x0;
 
-        /* Record to event log. */
-        emit Deposit(_token, _from, _tokens, _data);
+        /**
+         * If `_data` is an `address`, then set the value to `receiver`.
+         * e.g. when `approveAndCall` is made from a contract (representing the owner).
+         */
+        if (_data.length == 20) {
+            /* Retrieve the receiver's address from `data` payload. */
+            receiver = _bytesToAddress(_data);
+        } else {
+            /* Set receiver to `from` (also the token owner). */
+            receiver = _from;
+        }
+
+        /* Increase receiver cache balance. */
+        _balances[_token][receiver] = _balances[_token][receiver].add(_tokens);
+
+        /* Broadcast event. */
+        emit Deposit(_token, receiver, _tokens, _data);
 
         /* Return success. */
         return true;
