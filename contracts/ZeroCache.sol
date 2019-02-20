@@ -34,7 +34,7 @@ pragma solidity ^0.4.25;
  *             For more information, please visit:
  *             https://0net.io/zerocache.bit
  *
- * Version 19.2.19
+ * Version 19.2.20
  *
  * https://d14na.org
  * support@d14na.org
@@ -234,6 +234,30 @@ contract WETHInterface {
 
 /*******************************************************************************
  *
+ * ERC-165 Interface
+ */
+contract ERC165 {
+    /// @notice Query if a contract implements an interface
+    /// @param interfaceID The interface identifier, as specified in ERC-165
+    /// @dev Interface identification is specified in ERC-165. This function
+    ///  uses less than 30,000 gas.
+    /// @return `true` if the contract implements `interfaceID` and
+    ///  `interfaceID` is not 0xffffffff, `false` otherwise
+    function supportsInterface(bytes4 interfaceID) external view returns (bool);
+}
+
+
+/*******************************************************************************
+ *
+ * ERC-1155 Interface
+ */
+// TODO Add interface functions
+//      (see https://github.com/enjin/erc-1155/blob/master/contracts/IERC1155.sol)
+//      (and https://blog.enjincoin.io/erc-1155-the-crypto-item-standard-ac9cf1c5a226)
+
+
+/*******************************************************************************
+ *
  * @notice ZeroCache DOES NOT HOLD ANY "OFFICIAL" AFFILIATION with ZeroNet Core,
  *         ZeroNet.io nor any of its brands and affiliates.
  *
@@ -271,6 +295,13 @@ contract ZeroCache is Owned {
     /* Initialize expired signature flags. */
     mapping(bytes32 => bool) private _expiredSignatures;
 
+    /* Initialize revision depth. */
+    // NOTE: Allows for balance and transaction aggregation
+    //       from previous ZeroCache contract instance(s).
+    // FIXME Determine the MAXIMUM depth and set here.
+    //       Estimated to be between 100-200
+    uint private _MAX_REVISION_DEPTH = 0;
+
     event Deposit(
         address indexed token,
         address owner,
@@ -278,9 +309,22 @@ contract ZeroCache is Owned {
         bytes data
     );
 
-    event Sweep(
+    event Migrate(
         address indexed token,
         address owner,
+        uint tokens
+    );
+
+    event Skipped(
+        address sender,
+        address receiver,
+        address token,
+        uint tokens
+    );
+
+    event Staek(
+        address sender,
+        address staekholder,
         uint tokens
     );
 
@@ -385,6 +429,7 @@ contract ZeroCache is Owned {
         }
     }
 
+
     /***************************************************************************
      *
      * ACTIONS
@@ -393,16 +438,17 @@ contract ZeroCache is Owned {
 
     /**
      * Wrap
-     *
-     * Send Ether into this method. It gets wrapped and then deposited
-     * in this contract as a token balance assigned to the sender.
      */
     function wrap() external payable returns (bool success) {
+        /* Return wrap success. */
         return _wrap();
     }
 
     /**
-     * Wrap (private)
+     * Wrap
+     *
+     * Send Ether into this method. It gets wrapped and then deposited
+     * in this contract as a token balance assigned to the sender.
      */
     function _wrap() private returns (bool success) {
         /* Set WETH address. */
@@ -442,7 +488,10 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * Unwrap (Administrators ONLY)
+     * Unwrap
+     *
+     * NOTE: This function is reserved for exclusive use by
+     *       Zer0net Administration ONLY, for compliance puposes.
      */
     function unwrap(
         address _owner,
@@ -538,14 +587,16 @@ contract ZeroCache is Owned {
         bytes _data
     ) private returns (bool success) {
         /* Transfer the ERC-20 tokens into Cache. */
-        ERC20Interface(_token).transferFrom(_from, address(this), _tokens);
+        ERC20Interface(_token).transferFrom(
+            _from, address(this), _tokens);
 
         /* Initialize receiver (address). */
         address receiver = 0x0;
 
         /**
          * If `_data` is an `address`, then set the value to `receiver`.
-         * e.g. when `approveAndCall` is made from a contract (representing the owner).
+         * e.g. when `approveAndCall` is made from a contract
+         * (representing the owner).
          */
         if (_data.length == 20) {
             /* Retrieve the receiver's address from `data` payload. */
@@ -556,7 +607,8 @@ contract ZeroCache is Owned {
         }
 
         /* Increase receiver cache balance. */
-        _balances[_token][receiver] = _balances[_token][receiver].add(_tokens);
+        _balances[_token][receiver] =
+            _balances[_token][receiver].add(_tokens);
 
         /* Broadcast event. */
         emit Deposit(_token, receiver, _tokens, _data);
@@ -576,7 +628,10 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * Withdraw (Administrators ONLY)
+     * Withdraw
+     *
+     * NOTE: This function is reserved for exclusive use by
+     *       Zer0net Administration ONLY, for compliance puposes.
      */
     function withdraw(
         address _owner,
@@ -594,8 +649,10 @@ contract ZeroCache is Owned {
         address _token,
         uint _tokens
     ) private returns (bool success) {
-        /* Validate available balance. */
-        if (_balances[_token][_owner] < _tokens) revert();
+        /* Validate balance. */
+        if (_balances[_token][_owner] < _tokens) {
+            revert('Oops! You DO NOT have enough tokens.');
+        }
 
         /* Decrease owner's balance by token amount. */
         _balances[_token][_owner] = _balances[_token][_owner].sub(_tokens);
@@ -621,37 +678,43 @@ contract ZeroCache is Owned {
         address _token,
         uint _tokens
     ) external returns (bool success) {
-        return _transfer(msg.sender, _to, _token, _tokens);
+        return _transfer(
+            msg.sender, _to, _token, _tokens, _MAX_REVISION_DEPTH);
     }
 
     /**
-     * Transfer
+     * (Relayed) Transfer
      *
      * This transfer requires an off-chain (EC) signature, from the
      * account holder, detailing the transaction.
      *
-     * Boost Fee
-     * ---------
+     * Staekholder
+     * -----------
      *
-     * Users may choose to boost the fee paid for their transfer request,
-     * decreasing the delivery time to near instant (highest priority for
-     * miners to process) confirmation. This fee is paid for in ZeroGold,
-     * and is 100% optional. Standard Delivery will be FREE forever.
+     * Users may choose to boost the speed of execution for their
+     * transfer request, decreasing the delivery time to near instant
+     * (highest priority for miners to process) confirmation.
      *
-     * TODO: Let's implement GasToken to provide relayers an opportunity
+     * A staek of ZeroGold is required to be added to the request,
+     * in an amount specified by your preferred staekholder.
+     *
+     * This staek is 100% optional, as Standard Delivery will be
+     * FREE FOREVER!
+     *
+     * TODO: Let's implement GasToken to provide staekholder an opportunity
      *       to hedge against the volatility of the gas price.
      *       (source: https://gastoken.io/)
      */
     function transfer(
-        address _token,         // contract address
-        address _from,          // sender's address
-        address _to,            // receiver's address
-        uint _tokens,           // quantity of tokens
-        address _boostProvider, // boost service provider
-        uint _boostFee,         // boost fee
-        uint _expires,          // expiration time
-        uint _nonce,            // unique integer
-        bytes _signature        // signed message
+        address _token,       // contract address
+        address _from,        // sender's address
+        address _to,          // receiver's address
+        uint _tokens,         // quantity of tokens
+        address _staekholder, // staekholder
+        uint _staek,          // staek amount
+        uint _expires,        // expiration time
+        uint _nonce,          // unique integer
+        bytes _signature      // signed message
     ) external returns (bool success) {
         /* Calculate transfer hash. */
         bytes32 transferHash = keccak256(abi.encodePacked(
@@ -660,32 +723,33 @@ contract ZeroCache is Owned {
             _from,
             _to,
             _tokens,
-            _boostProvider,
-            _boostFee,
+            _staekholder,
+            _staek,
             _expires,
             _nonce
         ));
 
-        /* Validate transfer. */
-        bool isValidTransfer = _isValidTransfer(
+        /* Validate request has authorized signature. */
+        bool requestHasAuthSig = _requestHasAuthSig(
             _from,
             transferHash,
             _expires,
             _signature
         );
 
-        /* Validate transfer. */
-        if (!isValidTransfer) {
-            revert('Oops! This transfer is NOT valid.');
+        /* Validate signature. */
+        if (!requestHasAuthSig) {
+            revert('Oops! This relay request is NOT valid.');
         }
 
         /* Validate boost fee and pay (if necessary). */
-        if (_boostFee > 0) {
-            _payBoostFee(_from, _boostProvider, _boostFee);
+        if (_staek > 0) {
+            _addStaek(_from, _staekholder, _staek);
         }
 
         /* Request token transfer. */
-        return _transfer(_from, _to, _token, _tokens);
+        return _transfer(
+            _from, _to, _token, _tokens, _MAX_REVISION_DEPTH);
     }
 
     /**
@@ -693,24 +757,43 @@ contract ZeroCache is Owned {
      *
      * Transfers the "specified" ERC-20 tokens held by the sender
      * to the receiver's account.
+     *
+     * TODO Determine the MAXIMUM depth that can be requested
+     *      and set a HARD LIMIT.
      */
     function _transfer(
-        address _sender,
-        address _receiver,
+        address _from,
+        address _to,
         address _token,
-        uint _tokens
+        uint _tokens,
+        uint _depth
     ) private returns (bool success) {
+        // TODO Process depth requests greater than 0
+
+        if (_depth > 0) {
+            // NOTE: We will transfer ALL previous balances
+            //       to THIS instance of ZeroCache.
+            //
+            //       Call `approveAndCall` for each instance
+            //       that has a positive balance.
+        }
+
+        /* Validate balance. */
+        if (_balances[_token][_from] < _tokens) {
+            revert('Oops! You DO NOT have enough tokens.');
+        }
+
         /* Remove the transfer value from sender's balance. */
-        _balances[_token][_sender] = _balances[_token][_sender].sub(_tokens);
+        _balances[_token][_from] = _balances[_token][_from].sub(_tokens);
 
         /* Add the transfer value to the receiver's balance. */
-        _balances[_token][_receiver] = _balances[_token][_receiver].add(_tokens);
+        _balances[_token][_to] = _balances[_token][_to].add(_tokens);
 
         /* Broadcast event. */
         emit Transfer(
             _token,
-            _sender,
-            _receiver,
+            _from,
+            _to,
             _tokens
         );
 
@@ -719,18 +802,43 @@ contract ZeroCache is Owned {
     }
 
     /**
+     * Multi Transfer
+     *
+     * Transfers multiple ERC-20 tokens held by the sender
+     * to multiple receiver accounts.
+     */
+    function multiTransfer(
+        address[] _to,
+        address[] _token,
+        uint[] _tokens
+    ) external returns (bool success) {
+        return _multiTransfer(msg.sender, _to, _token, _tokens);
+    }
+
+    //----------------------------------------------------------------
+    //----------------------------------------------------------------
+    // NOTE: We DO NOT yet offer support for RELAYED Multi Transfers.
+    //----------------------------------------------------------------
+    //----------------------------------------------------------------
+
+    /**
      * Transfer Multiple Tokens (w/ Single Transaction)
      *
-     * NOTE: This feature is not yet implemented (publicly).
+     * WARNING: Sending to multiple receipients is very risky,
+     *          as there is NO way to control the gas costs per
+     *          transaction (ie. contract addresses are limitless).
+     *
+     *          For this reason, we SKIP ALL transfers to contract
+     *          addresses. You can monitor the `Skipped` event.
      */
     function _multiTransfer(
-        address _sender,
-        address[] _receiver,
+        address _from,
+        address[] _to,
         address[] _token,
         uint[] _tokens
     ) private returns (bool success) {
         /* Loop through all receivers. */
-        for (uint i = 0; i < _receiver.length; i++) {
+        for (uint i = 0; i < _to.length; i++) {
             /* Set token. */
             address token = _token[i];
 
@@ -738,24 +846,17 @@ contract ZeroCache is Owned {
             uint tokens = _tokens[i];
 
             /* Set receiver. */
-            address receiver = _receiver[i];
+            address to = _to[i];
 
-            /* Make transfer. */
-            ERC20Interface(token).transfer(receiver, tokens);
-
-            /* Remove the transfer value from sender's balance. */
-            _balances[token][_sender] = _balances[token][_sender].sub(tokens);
-
-            /* Add the transfer value to the receiver's balance. */
-            _balances[token][receiver] = _balances[token][receiver].add(tokens);
-
-            /* Boradcast event. */
-            emit Transfer(
-                token,
-                _sender,
-                receiver,
-                tokens
-            );
+            /* Validate receiver address. */
+            if (_ownerIsContract(to)) {
+                /* Broadcast event. */
+                emit Skipped(_from, to, token, tokens);
+            } else {
+                /* Transfer tokens. */
+                _transfer(
+                    _from, to, token, tokens, _MAX_REVISION_DEPTH);
+            }
         }
 
         /* Return success. */
@@ -763,34 +864,39 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * Pay Boost Fee (private)
+     * Add Staek (to Relay Transfer)
      *
-     * This is an (optional) fee paid by the sender, which
+     * This is an (optional) staek provided by the sender, which
      * transfers ZeroGold from the sender's account to the specified
-     * fee account (eg. Infinity Pool).
+     * staekholder account.
+     *
+     * NOTE: Staek is only a temporary hold, until fees are collected
+     *       by the sender's preferred staekholder.
      */
-    function _payBoostFee(
-        address _sender,
-        address _provider,
+    function _addStaek(
+        address _owner,
+        address _staekholder,
         uint _tokens
     ) private returns (bool success) {
         /* Set ZeroGold address. */
         address zgAddress = _zeroGold();
 
         /* Validate available balance. */
-        if (_balances[zgAddress][_sender] < _tokens) revert();
+        if (_balances[zgAddress][_owner] < _tokens) {
+            revert('Oops! You DO NOT have enough ZeroGold to staek.');
+        }
 
         /* Decrease owner's balance by token amount. */
-        _balances[zgAddress][_sender] = _balances[zgAddress][_sender].sub(_tokens);
+        _balances[zgAddress][_owner] =
+            _balances[zgAddress][_owner].sub(_tokens);
 
-        /* Transfer specified tokens to boost account. */
-        _zeroGold().transfer(_provider, _tokens);
+        /* Transfer specified tokens to staekholder account. */
+        _zeroGold().transfer(_staekholder, _tokens);
 
         /* Broadcast event. */
-        emit Transfer(
-            zgAddress,
-            _sender,
-            _provider,
+        emit Staek(
+            _owner,
+            _staekholder,
             _tokens
         );
 
@@ -805,34 +911,41 @@ contract ZeroCache is Owned {
      * by invalidating the signature on-chain.
      */
     function cancel(
-        address _token,         // contract address
-        address _from,          // sender's address
-        address _to,            // receiver's address
-        uint _tokens,           // quantity of tokens
-        address _boostProvider, // boost service provider
-        uint _boostFee,         // boost fee
-        uint _expires,          // expiration time
-        uint _nonce             // unique integer
+        address _token,       // contract address
+        address _from,        // sender's address
+        address _to,          // receiver's address
+        uint _tokens,         // quantity of tokens
+        address _staekholder, // staekholder
+        uint _staek,          // staek amount
+        uint _expires,        // expiration time
+        uint _nonce,          // unique integer
+        bytes _signature      // signed message
     ) external returns (bool success) {
-        /* Calculate the transfer hash. */
-        bytes32 tansferHash = keccak256(abi.encodePacked(
+        /* Calculate cancel hash. */
+        bytes32 cancelHash = keccak256(abi.encodePacked(
             address(this),
             _token,
             _from,
             _to,
             _tokens,
-            _boostProvider,
-            _boostFee,
+            _staekholder,
+            _staek,
             _expires,
             _nonce
         ));
 
-        /* Calculate the signature hash. */
-        bytes32 sigHash = keccak256(abi.encodePacked(
-            "\x19Ethereum Signed Message:\n32", tansferHash));
+        /* Validate request has authorized signature. */
+        bool requestHasAuthSig = _requestHasAuthSig(
+            _from,
+            cancelHash,
+            _expires,
+            _signature
+        );
 
-        /* Set expiration flag. */
-        _expiredSignatures[sigHash] = true;
+        /* Validate signature. */
+        if (!requestHasAuthSig) {
+            revert('Oops! This cancel request is NOT valid.');
+        }
 
         /* Return success. */
         return true;
@@ -849,7 +962,10 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * Sweep (Administrators ONLY)
+     * Migrate
+     *
+     * NOTE: This function is reserved for exclusive use by
+     *       Zer0net Administration ONLY, for compliance puposes.
      */
     function migrate(
         address _owner,
@@ -866,108 +982,53 @@ contract ZeroCache is Owned {
      * from this instance into the latest instance of ZeroCache
      *
      * NOTE: Account value read from the Zer0net Db `zerocache.latest`.
+     *
+     * TODO As the WETH contract DOES NOT support
+     *      `ApproveAndCallFallBack`, we must first get an allowance.
      */
     function _migrate(
         address _owner,
         address[] _tokens,
         bool _preApproved
     ) private returns (bool success) {
+        /* Loop through all tokens. */
+        for (uint i = 0; i < _tokens.length; i++) {
+            /* Set token. */
+            address token = _tokens[i];
 
-        // TODO Create loop to process tokens one-at-a-time.
-        address token = _tokens[0];
+            // TODO IS THIS A WETH TOKEN??
 
-        /* Retrieve available balance. */
-        uint balance = _balances[token][_owner];
+            /* Retrieve available balance. */
+            uint balance = _balances[token][_owner];
 
-        /* Pull latest instance address from Zer0net Db. */
-        address latestCache = _zer0netDb.getAddress(
-            keccak256('zerocache.latest'));
+            /* Reduce owner's balance to zero. */
+            // NOTE: Do this now to prevent re-entry attack.
+            _balances[token][_owner] = 0;
 
-        /* Reduce owner's balance to zero. */
-        // balances[_token][_owner] = 0;
+            /* Pull latest instance address from Zer0net Db. */
+            address latestCache = _zer0netDb.getAddress(
+                keccak256('zerocache.latest'));
 
-        /* Initialize empty data (for event log). */
-        bytes memory data;
+            /* Set data to owner (address). */
+            // NOTE: Required to assign tokens after being received
+            //       by the new contract instance.
+            bytes memory data = abi.encodePacked(_owner);
 
-        /* Transfer full balance to owner's account on the latest instance. */
-        if (_preApproved) {
-            ZeroCache(latestCache).deposit(token, _owner, balance, data);
-        } else {
-            ApproveAndCallFallBack(token).approveAndCall(_owner, balance, data);
+            /**
+             * Transfer full balance to owner's account on the
+             * latest instance.
+             */
+            if (_preApproved) {
+                ZeroCache(latestCache).deposit(
+                    token, address(this), balance, data);
+            } else {
+                ApproveAndCallFallBack(token).approveAndCall(
+                    latestCache, balance, data);
+            }
+
+            /* Record to event log. */
+            emit Migrate(token, _owner, balance);
         }
-
-        // TODO If WETH, must first get allowance.
-
-        /* Record to event log. */
-        emit Sweep(token, _owner, balance);
-
-        /* Return success. */
-        return true;
-    }
-
-    /**
-     * Is Valid Transfer
-     */
-    function _isValidTransfer(
-        address _from,
-        bytes32 _transferHash,
-        uint _expires,
-        bytes _signature
-    ) private returns (bool success) {
-        /* Calculate signature hash. */
-        bytes32 sigHash = keccak256(abi.encodePacked(
-            '\x19Ethereum Signed Message:\n32', _transferHash));
-
-        /* Validate signature expiration. */
-        if (_expiredSignatures[sigHash]) {
-            return false;
-        }
-
-        /* Set expiration flag. */
-        // NOTE: Set a flag here to prevent double-spending.
-        _expiredSignatures[sigHash] = true;
-
-        /* Validate the expiration time. */
-        if (block.number > _expires) {
-            return false;
-        }
-
-        /* Retrieve the authorized account (address). */
-        address authorizedAccount = ECRecovery.recover(sigHash, _signature);
-
-        /* Validate the signer matches owner of the tokens. */
-        if (_from != authorizedAccount) {
-            return false;
-        }
-
-        /* Return success. */
-        return true;
-    }
-
-    function _isAccountOpen(
-        // address _account
-    ) private pure returns (bool success) {
-        // TODO
-        // 1. Check `mapping(address => bool) _accountStatus`
-        // 2. OR... create struct for `Accounts`
-
-        /* Return success. */
-        return true;
-    }
-
-    /**
-     * Close Account
-     *
-     * Sets a flag to indicate that ALL tokens have been
-     * transferred out of the Cache and no further activity
-     * is permitted to take place for this account.
-     */
-    function _closeAccount(
-        // address _account
-    ) private pure returns (bool success) {
-        // TODO
-        // 1. Validate no tokens exist.
-        // 2. Disable user execution.
 
         /* Return success. */
         return true;
@@ -987,14 +1048,33 @@ contract ZeroCache is Owned {
         return _revision;
     }
 
-    /***************************************************************************
-     *
+    /**
      * Get the token balance for account `tokenOwner`
      */
     function balanceOf(
         address _token,
         address _owner
     ) external constant returns (uint balance) {
+        /* Return balance. */
+        return balanceOf(
+            _token, _owner, _MAX_REVISION_DEPTH);
+    }
+
+    /**
+     * Get the token balance for account `tokenOwner`
+     *
+     * TODO Process depth requests greater than 0
+     */
+    function balanceOf(
+        address _token,
+        address _owner,
+        uint _depth
+    ) public constant returns (uint balance) {
+        /* Loop through previous instances for balance. */
+        for (uint i = 0; i < _depth; i++) {
+            // TODO Determine MAXIMUM depth and restrict.
+        }
+
         /* Retrieve balance. */
         balance = _balances[_token][_owner];
     }
@@ -1027,6 +1107,40 @@ contract ZeroCache is Owned {
      * INTERFACES
      *
      */
+
+    /**
+     * Supports Interface (EIP-165)
+     *
+     * (see: https://github.com/ethereum/EIPs/blob/master/EIPS/eip-165.md)
+     *
+     * NOTE: Must support the following conditions:
+     *       1. (true) when interfaceID is 0x01ffc9a7 (EIP165 interface)
+     *       2. (false) when interfaceID is 0xffffffff
+     *       3. (true) for any other interfaceID this contract implements
+     *       4. (false) for any other interfaceID
+     */
+    function supportsInterface(
+        bytes4 _interfaceID
+    ) external pure returns (bool) {
+        /* Initialize constants. */
+        bytes4 InvalidId = 0xffffffff;
+        bytes4 ERC165Id = 0x01ffc9a7;
+
+        /* Validate condition #2. */
+        if (_interfaceID == InvalidId) {
+            return false;
+        }
+
+        /* Validate condition #1. */
+        if (_interfaceID == ERC165Id) {
+            return true;
+        }
+
+        // TODO Add additional interfaces here.
+
+        /* Return false (for condition #4). */
+        return false;
+    }
 
     /**
      * Wrapped Ether (WETH) Interface
@@ -1094,6 +1208,80 @@ contract ZeroCache is Owned {
      * UTILITIES
      *
      */
+
+    /**
+     * Request Hash Authorized Signature
+     *
+     * Validates ALL signature requests by:
+     *     1. Uses ECRecovery to validate the signature.
+     *     2. Verify expiration against the current block number.
+     *     3. Sets a flag to block re-use of signature.
+     */
+    function _requestHasAuthSig(
+        address _from,
+        bytes32 _authHash,
+        uint _expires,
+        bytes _signature
+    ) private returns (bool success) {
+        /* Calculate signature hash. */
+        bytes32 sigHash = keccak256(abi.encodePacked(
+            '\x19Ethereum Signed Message:\n32', _authHash));
+
+        /* Validate signature expiration. */
+        if (_expiredSignatures[sigHash]) {
+            return false;
+        }
+
+        /* Set expiration flag. */
+        // NOTE: Set a flag here to prevent double-spending.
+        _expiredSignatures[sigHash] = true;
+
+        /* Validate the expiration time. */
+        if (block.number > _expires) {
+            return false;
+        }
+
+        /* Retrieve the authorized account (address). */
+        address authorizedAccount = ECRecovery.recover(
+            sigHash, _signature);
+
+        /* Validate the signer matches owner of the tokens. */
+        if (_from != authorizedAccount) {
+            return false;
+        }
+
+        /* Return success. */
+        return true;
+    }
+
+    function _isAccountOpen(
+        // address _account
+    ) private pure returns (bool success) {
+        // TODO
+        // 1. Check `mapping(address => bool) _accountStatus`
+        // 2. OR... create struct for `Accounts`
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Close Account
+     *
+     * Sets a flag to indicate that ALL tokens have been
+     * transferred out of the Cache and no further activity
+     * is permitted to take place for this account.
+     */
+    function _closeAccount(
+        // address _account
+    ) private pure returns (bool success) {
+        // TODO
+        // 1. Validate no tokens exist.
+        // 2. Disable user execution.
+
+        /* Return success. */
+        return true;
+    }
 
     /**
      * Is (Owner) Contract

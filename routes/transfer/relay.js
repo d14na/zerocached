@@ -24,7 +24,7 @@ module.exports = function (req, res) {
     const acct = web3.eth.accounts.privateKeyToAccount(pk)
 
     /* Initilize address. */
-    const contractAddress = '0x79e0FCF937843E58C84eF491AF394BA8835Aa098' // ZeroCache
+    const contractAddress = '0xA6CB833eA8127Aa628152720b622F6B4d002fCD8' // ZeroCache
 
     /* Initilize abi. */
     const abi = require('../../abi/zeroCache')
