@@ -340,7 +340,7 @@ contract ZeroCache is Owned {
      */
     constructor() public {
         /* Set predecessor address. */
-        _predecessor = 0xef69d7e46302485099444994127Ac2cFEd661ef5;
+        _predecessor = 0x511C0d732ec9563212c2d316177bFd3317B4B565;
 
         /* Verify predecessor address. */
         if (_predecessor != 0x0) {
