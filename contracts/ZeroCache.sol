@@ -297,7 +297,7 @@ contract ZeroCache is Owned {
 
     /* Initialize revision depth. */
     // NOTE: Allows for balance and transaction aggregation
-    //       from previous ZeroCache contract instance(s).
+    //       from legacy ZeroCache contract instance(s).
     // FIXME Determine the MAXIMUM depth and set here.
     //       Estimated to be between 100-200
     uint private _MAX_REVISION_DEPTH = 0;
@@ -347,7 +347,7 @@ contract ZeroCache is Owned {
      */
     constructor() public {
         /* Set predecessor address. */
-        _predecessor = 0x83C92764A243522d1929C1fe32c1F2DDE7dF2FbE;
+        _predecessor = 0xef69d7e46302485099444994127Ac2cFEd661ef5;
 
         /* Verify predecessor address. */
         if (_predecessor != 0x0) {
@@ -425,7 +425,7 @@ contract ZeroCache is Owned {
 
         /* DO NOT (re-)wrap incoming ETH from Wrapped ETH contract. */
         if (!isWethContract) {
-            _wrap();
+            _wrap(msg.sender);
         }
     }
 
@@ -441,7 +441,19 @@ contract ZeroCache is Owned {
      */
     function wrap() external payable returns (bool success) {
         /* Return wrap success. */
-        return _wrap();
+        return _wrap(msg.sender);
+    }
+
+    /**
+     * Wrap
+     *
+     * NOTE: This function is primarily used to support instance
+     *       migration(s) of WETH.
+     */
+    function wrap(
+        address _owner
+    ) external payable returns (bool success) {
+        return _wrap(_owner);
     }
 
     /**
@@ -450,7 +462,9 @@ contract ZeroCache is Owned {
      * Send Ether into this method. It gets wrapped and then deposited
      * in this contract as a token balance assigned to the sender.
      */
-    function _wrap() private returns (bool success) {
+    function _wrap(
+        address _owner
+    ) private returns (bool success) {
         /* Set WETH address. */
         address wethAddress = _weth();
 
@@ -461,10 +475,10 @@ contract ZeroCache is Owned {
             (abi.encodeWithSignature("deposit()"));
 
         /* Calculate new balance. */
-        uint newBalance = _balances[wethAddress][msg.sender].add(msg.value);
+        uint newBalance = _balances[wethAddress][_owner].add(msg.value);
 
         /* Increase WETH balance by sent value. */
-        _balances[wethAddress][msg.sender] = newBalance;
+        _balances[wethAddress][_owner] = newBalance;
 
         /* Initialize empty data (for event log). */
         bytes memory data;
@@ -472,7 +486,7 @@ contract ZeroCache is Owned {
         /* Broadcast event. */
         emit Deposit(
             wethAddress,
-            msg.sender,
+            _owner,
             msg.value,
             data
         );
@@ -483,15 +497,21 @@ contract ZeroCache is Owned {
      */
     function unwrap(
         uint _tokens
-    ) external returns (bool success) {
+    ) public returns (bool success) {
         return _unwrap(msg.sender, _tokens);
     }
 
     /**
      * Unwrap
      *
+     * We allow administrative unwrapping of WETH held
+     * in the ZeroCache, FOR COMPLIANCE PURPOSES ONLY.
+     *
      * NOTE: This function is reserved for exclusive use by
-     *       Zer0net Administration ONLY, for compliance puposes.
+     *       Zer0net Administration ONLY.
+     *
+     *       Tokens unwrapped by an administrator can
+     *       ONLY be transferred to the ORIGINAL owner.
      */
     function unwrap(
         address _owner,
@@ -501,7 +521,7 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * Unwrap (private)
+     * Unwrap
      *
      * When this contract has control of wrapped eth, this is a way to easily
      * withdraw it as ether if there is any Ether in the contract.
@@ -540,8 +560,7 @@ contract ZeroCache is Owned {
     /**
      * Deposit
      *
-     * Provides support for "manual" token deposits (from either a user
-     * or a previous generation of ZeroCache sweeping its balance).
+     * Provides support for "pre-approved" token deposits.
      *
      * NOTE: Required pre-allowance/approval is required in order
      *       to successfully complete the transfer.
@@ -575,7 +594,7 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * Deposit (private)
+     * Deposit
      *
      * NOTE: This function requires pre-approval from the token
      *       contract for the amount requested.
@@ -606,7 +625,7 @@ contract ZeroCache is Owned {
             receiver = _from;
         }
 
-        /* Increase receiver cache balance. */
+        /* Increase receiver balance. */
         _balances[_token][receiver] =
             _balances[_token][receiver].add(_tokens);
 
@@ -623,15 +642,21 @@ contract ZeroCache is Owned {
     function withdraw(
         address _token,
         uint _tokens
-    ) external returns (bool success) {
+    ) public returns (bool success) {
         return _withdraw(msg.sender, _token, _tokens);
     }
 
     /**
      * Withdraw
      *
+     * We allow administrative withdrawls of tokens held
+     * in the ZeroCache, FOR COMPLIANCE PURPOSES ONLY.
+     *
      * NOTE: This function is reserved for exclusive use by
-     *       Zer0net Administration ONLY, for compliance puposes.
+     *       Zer0net Administration ONLY.
+     *
+     *       Tokens withdrawn by an administrator can
+     *       ONLY be transferred to the ORIGINAL owner.
      */
     function withdraw(
         address _owner,
@@ -642,7 +667,10 @@ contract ZeroCache is Owned {
     }
 
     /**
-     * Withdraw (private)
+     * Withdraw
+     *
+     * Allows the withdrawl of tokens held in the ZeroCache
+     * back to the ORIGINAL owner.
      */
     function _withdraw(
         address _owner,
@@ -654,8 +682,9 @@ contract ZeroCache is Owned {
             revert('Oops! You DO NOT have enough tokens.');
         }
 
-        /* Decrease owner's balance by token amount. */
-        _balances[_token][_owner] = _balances[_token][_owner].sub(_tokens);
+        /* Decrease owner balance by token amount. */
+        _balances[_token][_owner] =
+            _balances[_token][_owner].sub(_tokens);
 
         /* Transfer requested tokens to owner. */
         ERC20Interface(_token).transfer(_owner, _tokens);
@@ -679,7 +708,7 @@ contract ZeroCache is Owned {
         uint _tokens
     ) external returns (bool success) {
         return _transfer(
-            msg.sender, _to, _token, _tokens, _MAX_REVISION_DEPTH);
+            msg.sender, _to, _token, _tokens);
     }
 
     /**
@@ -749,11 +778,11 @@ contract ZeroCache is Owned {
 
         /* Request token transfer. */
         return _transfer(
-            _from, _to, _token, _tokens, _MAX_REVISION_DEPTH);
+            _from, _to, _token, _tokens);
     }
 
     /**
-     * Transfer (private)
+     * Transfer
      *
      * Transfers the "specified" ERC-20 tokens held by the sender
      * to the receiver's account.
@@ -765,19 +794,8 @@ contract ZeroCache is Owned {
         address _from,
         address _to,
         address _token,
-        uint _tokens,
-        uint _depth
+        uint _tokens
     ) private returns (bool success) {
-        // TODO Process depth requests greater than 0
-
-        if (_depth > 0) {
-            // NOTE: We will transfer ALL previous balances
-            //       to THIS instance of ZeroCache.
-            //
-            //       Call `approveAndCall` for each instance
-            //       that has a positive balance.
-        }
-
         /* Validate balance. */
         if (_balances[_token][_from] < _tokens) {
             revert('Oops! You DO NOT have enough tokens.');
@@ -855,7 +873,7 @@ contract ZeroCache is Owned {
             } else {
                 /* Transfer tokens. */
                 _transfer(
-                    _from, to, token, tokens, _MAX_REVISION_DEPTH);
+                    _from, to, token, tokens);
             }
         }
 
@@ -886,7 +904,7 @@ contract ZeroCache is Owned {
             revert('Oops! You DO NOT have enough ZeroGold to staek.');
         }
 
-        /* Decrease owner's balance by token amount. */
+        /* Decrease owner balance by token amount. */
         _balances[zgAddress][_owner] =
             _balances[zgAddress][_owner].sub(_tokens);
 
@@ -963,71 +981,76 @@ contract ZeroCache is Owned {
     /**
      * Migrate
      *
-     * NOTE: This function is reserved for exclusive use by
-     *       Zer0net Administration ONLY, for compliance puposes.
+     * THIS FUNCTION IS UN-IMPLMENTED
+     *
+     * NOTE: There is no ADMIN migration function available
+     *       as a protection against UNAUTHORIZED transfer(s) to
+     *       possible rogue instance(s) of ZeroCache.
      */
-    function migrate(
-        address _owner,
-        address[] _tokens
-    ) onlyAuthBy0Admin external returns (bool success) {
-        return _migrate(_owner, _tokens);
-    }
 
     /**
-     * Sweep (private)
+     * Migrate
      *
      * Allows for the full balance transfer of an individual token
-     * from previous instance(s) into this instance of ZeroCache.
-     *
-     * NOTE: This function is mostly optional; as all balance requests
-     *       and transfers are built to aggregate nearly ALL deployed
-     *       instances of ZeroCache in existence.
-     *
-     * FIXME Add depth, to allow for multiple predecessors.
-     *
-     * FIXME As the WETH contract DOES NOT support
-     *      `ApproveAndCallFallBack`, we must first get an allowance.
+     * from legacy instance(s) to the LATEST instance of ZeroCache.
      */
     function _migrate(
         address _owner,
         address[] _tokens
     ) private returns (bool success) {
+        /* Set hash. */
+        bytes32 hash = keccak256('zerocache.latest');
+
+        /* Retrieve value from Zer0net Db. */
+        address latestCache = _zer0netDb.getAddress(hash);
+
         /* Loop through all tokens. */
         for (uint i = 0; i < _tokens.length; i++) {
             /* Set token. */
             address token = _tokens[i];
 
-            /* Set (predecessor) instance. */
-            address instance = getPredecessor();
+            /* Retrieve balance. */
+            // NOTE: Explicitly set depth to `0`, for ONLY this instance.
+            uint balance = balanceOf(token, _owner, 0);
 
-            /* Retrieve total balance. */
-            uint balance = ZeroCache(instance).balanceOf(token, _owner);
+            /* Decrease owner balance to ZERO. */
+            // NOTE: We do this here to prevent re-entry attacks.
+            _balances[token][_owner] = 0;
 
-            /* Validate WETH contract (requires approval). */
-            // NOTE: WETH contract DOES NOT support `ApproveAndCallFallBack`.
+            /* Validate WETH contract (requires `unwrap`). */
             if (token == address(_weth())) {
-                /* Request approval. */
-                _weth().approve(instance, balance);
+                /* Set WETH address. */
+                address wethAddress = _weth();
 
-                /* Transfer tokens. */
-                _weth().transfer(address(this), balance);
+                /* Withdraw ETH from Wrapper contract. */
+                success = wethAddress.call
+                    .gas(100000)
+                    (abi.encodeWithSignature("withdraw(uint256)", balance));
+
+                /* (Re-)Wrap ETH into LATEST instance. */
+                // NOTE: ETH will be wrapped on `_owner` behalf.
+                success = latestCache.call
+                    .gas(100000)
+                    .value(balance)
+                    (abi.encodeWithSignature("wrap(address)", _owner));
             } else {
                 /* Set data to owner (address). */
                 // NOTE: Required to assign tokens after being received
                 //       by the new contract instance.
                 bytes memory data = abi.encodePacked(_owner);
 
-                /* Transfer full balance to current ZeroCache instance. */
-                ApproveAndCallFallBack(token).approveAndCall(
-                        address(this), balance, data);
+                /* (Re-)Deposit tokens into LATEST instance. */
+                // NOTE: Tokens will be credited to `_owner` (aka `data`).
+                ApproveAndCallFallBack(token)
+                    .approveAndCall(latestCache, balance, data);
+
+                /* Set success. */
+                success = true;
             }
 
             /* Record to event log. */
             emit Migrate(token, _owner, balance);
         }
-
-        /* Return success. */
-        return true;
     }
 
 
@@ -1080,36 +1103,39 @@ contract ZeroCache is Owned {
         address _owner,
         uint _depth
     ) public constant returns (uint balance) {
-        /* Initialize active instance (to current predecessor). */
-        address activeInstance = _predecessor;
-
-        /* Initialize total previous balance. */
-        uint totalPreviousBalance = 0;
-
-        /* Loop through previous instances for balance. */
-        for (uint i = 0; i < _depth; i++) {
-            /* Retrieve balance. */
-            uint activeBalance = ZeroCache(activeInstance)
-                .balanceOf(_token, _owner);
-
-            /* Add to previous balance total. */
-            totalPreviousBalance = totalPreviousBalance.add(activeBalance);
-
-            /* Set the next active instance / predecessor (if available). */
-            activeInstance = ZeroCache(activeInstance).getPredecessor();
-
-            /* Validate active instance. */
-            if (activeInstance == 0x0) {
-                /* Break the loop. */
-                break;
-            }
-        }
-
         /* Retrieve (current) balance. */
         balance = _balances[_token][_owner];
 
-        /* Add total previous balance. */
-        balance = balance.add(totalPreviousBalance);
+        /* Initialize legacy instance (to current predecessor). */
+        address legacyInstance = getPredecessor();
+
+        /* Validate legacy instance. */
+        if (legacyInstance != 0x0) {
+            /* Initialize total legacy balance. */
+            uint totalLegacyBalance = 0;
+
+            /* Loop through legacy instances for balance. */
+            for (uint i = 0; i < _depth; i++) {
+                /* Retrieve balance. */
+                uint legacyBalance = ZeroCache(legacyInstance)
+                    .balanceOf(_token, _owner);
+
+                /* Add to legacy balance total. */
+                totalLegacyBalance = totalLegacyBalance.add(legacyBalance);
+
+                /* Set the next legacy instance / predecessor (if available). */
+                legacyInstance = ZeroCache(legacyInstance).getPredecessor();
+
+                /* Validate legacy instance. */
+                if (legacyInstance == 0x0) {
+                    /* Break the loop. */
+                    break;
+                }
+            }
+
+            /* Add total legacy balance. */
+            balance = balance.add(totalLegacyBalance);
+        }
     }
 
 
