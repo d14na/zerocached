@@ -257,11 +257,6 @@ contract ZeroCache is Owned {
     //       Estimated to be between 100-200
     uint private _MAX_REVISION_DEPTH = 0;
 
-    /* Initialize EC Recovery Library. */
-    // NOTE: This is a static library that has been deployed on-chain
-    //       and is reusable by ALL instances of ZeroCache.
-    address private _EC_RECOVERY_LIBRARY = 0x2d970318c96e26fd67817d28A5EE9F30675ea89e;
-
     event Deposit(
         address indexed token,
         address owner,
@@ -307,7 +302,7 @@ contract ZeroCache is Owned {
      */
     constructor() public {
         /* Set predecessor address. */
-        _predecessor = 0x5B43c3f14724312eAf644B5507D8716cC10c70e9;
+        _predecessor = 0xAABFd6953639104bfcc5194f3c7BeA7eb41e2d48;
 
         /* Verify predecessor address. */
         if (_predecessor != 0x0) {
@@ -980,7 +975,7 @@ contract ZeroCache is Owned {
         address[] _tokens
     ) private returns (bool success) {
         /* Set hash. */
-        bytes32 hash = keccak256('zerocache.latest');
+        bytes32 hash = keccak256('aname.zerocache');
 
         /* Retrieve value from Zer0net Db. */
         address latestCache = _zer0netDb.getAddress(hash);
@@ -1185,6 +1180,22 @@ contract ZeroCache is Owned {
     }
 
     /**
+     * ECRecovery Interface
+     */
+    function _ecRecovery() private view returns (
+        ECRecovery ecrecovery
+    ) {
+        /* Initailze hash. */
+        bytes32 hash = keccak256('aname.ecrecovery');
+
+        /* Retrieve value from Zer0net Db. */
+        address aname = _zer0netDb.getAddress(hash);
+
+        /* Initialize interface. */
+        ecrecovery = ECRecovery(aname);
+    }
+
+    /**
      * Wrapped Ether (WETH) Interface
      *
      * Retrieves the current WETH interface,
@@ -1284,8 +1295,8 @@ contract ZeroCache is Owned {
         }
 
         /* Retrieve the authorized account (address). */
-        address authorizedAccount = ECRecovery(_EC_RECOVERY_LIBRARY).recover(
-            sigHash, _signature);
+        address authorizedAccount =
+            _ecRecovery().recover(sigHash, _signature);
 
         /* Validate the signer matches owner of the tokens. */
         if (_from != authorizedAccount) {

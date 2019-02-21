@@ -1,90 +1,9 @@
 [
 	{
-		"constant": true,
-		"inputs": [
-			{
-				"name": "_interfaceID",
-				"type": "bytes4"
-			}
-		],
-		"name": "supportsInterface",
-		"outputs": [
-			{
-				"name": "",
-				"type": "bool"
-			}
-		],
-		"payable": false,
-		"stateMutability": "pure",
-		"type": "function"
-	},
-	{
 		"constant": false,
-		"inputs": [
-			{
-				"name": "_owner",
-				"type": "address"
-			}
-		],
-		"name": "wrap",
-		"outputs": [
-			{
-				"name": "success",
-				"type": "bool"
-			}
-		],
-		"payable": true,
-		"stateMutability": "payable",
-		"type": "function"
-	},
-	{
-		"constant": false,
-		"inputs": [
-			{
-				"name": "_newSuccessor",
-				"type": "address"
-			}
-		],
-		"name": "setSuccessor",
-		"outputs": [
-			{
-				"name": "success",
-				"type": "bool"
-			}
-		],
-		"payable": false,
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"constant": true,
 		"inputs": [],
-		"name": "getRevision",
-		"outputs": [
-			{
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"payable": false,
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"constant": false,
-		"inputs": [
-			{
-				"name": "_tokens",
-				"type": "address[]"
-			}
-		],
-		"name": "migrate",
-		"outputs": [
-			{
-				"name": "success",
-				"type": "bool"
-			}
-		],
+		"name": "acceptOwnership",
+		"outputs": [],
 		"payable": false,
 		"stateMutability": "nonpayable",
 		"type": "function"
@@ -144,51 +63,9 @@
 		"constant": false,
 		"inputs": [
 			{
-				"name": "_owner",
+				"name": "_token",
 				"type": "address"
 			},
-			{
-				"name": "_tokens",
-				"type": "uint256"
-			}
-		],
-		"name": "unwrap",
-		"outputs": [
-			{
-				"name": "success",
-				"type": "bool"
-			}
-		],
-		"payable": false,
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"constant": false,
-		"inputs": [],
-		"name": "acceptOwnership",
-		"outputs": [],
-		"payable": false,
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"constant": true,
-		"inputs": [],
-		"name": "owner",
-		"outputs": [
-			{
-				"name": "",
-				"type": "address"
-			}
-		],
-		"payable": false,
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"constant": false,
-		"inputs": [
 			{
 				"name": "_from",
 				"type": "address"
@@ -198,15 +75,11 @@
 				"type": "uint256"
 			},
 			{
-				"name": "_token",
-				"type": "address"
-			},
-			{
 				"name": "_data",
 				"type": "bytes"
 			}
 		],
-		"name": "receiveApproval",
+		"name": "deposit",
 		"outputs": [
 			{
 				"name": "success",
@@ -221,19 +94,11 @@
 		"constant": false,
 		"inputs": [
 			{
-				"name": "_to",
-				"type": "address"
-			},
-			{
-				"name": "_token",
-				"type": "address"
-			},
-			{
 				"name": "_tokens",
-				"type": "uint256"
+				"type": "address[]"
 			}
 		],
-		"name": "transfer",
+		"name": "migrate",
 		"outputs": [
 			{
 				"name": "success",
@@ -273,51 +138,59 @@
 	},
 	{
 		"constant": false,
-		"inputs": [],
-		"name": "wrap",
+		"inputs": [
+			{
+				"name": "_from",
+				"type": "address"
+			},
+			{
+				"name": "_tokens",
+				"type": "uint256"
+			},
+			{
+				"name": "_token",
+				"type": "address"
+			},
+			{
+				"name": "_data",
+				"type": "bytes"
+			}
+		],
+		"name": "receiveApproval",
 		"outputs": [
 			{
 				"name": "success",
 				"type": "bool"
 			}
 		],
-		"payable": true,
-		"stateMutability": "payable",
-		"type": "function"
-	},
-	{
-		"constant": true,
-		"inputs": [],
-		"name": "newOwner",
-		"outputs": [
-			{
-				"name": "",
-				"type": "address"
-			}
-		],
 		"payable": false,
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"constant": true,
-		"inputs": [],
-		"name": "getSuccessor",
-		"outputs": [
-			{
-				"name": "",
-				"type": "address"
-			}
-		],
-		"payable": false,
-		"stateMutability": "view",
+		"stateMutability": "nonpayable",
 		"type": "function"
 	},
 	{
 		"constant": false,
 		"inputs": [
 			{
-				"name": "_owner",
+				"name": "_newSuccessor",
+				"type": "address"
+			}
+		],
+		"name": "setSuccessor",
+		"outputs": [
+			{
+				"name": "success",
+				"type": "bool"
+			}
+		],
+		"payable": false,
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"constant": false,
+		"inputs": [
+			{
+				"name": "_to",
 				"type": "address"
 			},
 			{
@@ -329,49 +202,7 @@
 				"type": "uint256"
 			}
 		],
-		"name": "withdraw",
-		"outputs": [
-			{
-				"name": "success",
-				"type": "bool"
-			}
-		],
-		"payable": false,
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"constant": false,
-		"inputs": [
-			{
-				"name": "_tokenAddress",
-				"type": "address"
-			},
-			{
-				"name": "_tokens",
-				"type": "uint256"
-			}
-		],
-		"name": "transferAnyERC20Token",
-		"outputs": [
-			{
-				"name": "success",
-				"type": "bool"
-			}
-		],
-		"payable": false,
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"constant": false,
-		"inputs": [
-			{
-				"name": "_tokens",
-				"type": "uint256"
-			}
-		],
-		"name": "unwrap",
+		"name": "transfer",
 		"outputs": [
 			{
 				"name": "success",
@@ -434,67 +265,18 @@
 		"type": "function"
 	},
 	{
-		"constant": true,
-		"inputs": [],
-		"name": "getPredecessor",
-		"outputs": [
-			{
-				"name": "",
-				"type": "address"
-			}
-		],
-		"payable": false,
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"constant": true,
-		"inputs": [
-			{
-				"name": "_token",
-				"type": "address"
-			},
-			{
-				"name": "_owner",
-				"type": "address"
-			},
-			{
-				"name": "_depth",
-				"type": "uint256"
-			}
-		],
-		"name": "balanceOf",
-		"outputs": [
-			{
-				"name": "balance",
-				"type": "uint256"
-			}
-		],
-		"payable": false,
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
 		"constant": false,
 		"inputs": [
 			{
-				"name": "_token",
-				"type": "address"
-			},
-			{
-				"name": "_from",
+				"name": "_tokenAddress",
 				"type": "address"
 			},
 			{
 				"name": "_tokens",
 				"type": "uint256"
-			},
-			{
-				"name": "_data",
-				"type": "bytes"
 			}
 		],
-		"name": "deposit",
+		"name": "transferAnyERC20Token",
 		"outputs": [
 			{
 				"name": "success",
@@ -523,6 +305,52 @@
 		"constant": false,
 		"inputs": [
 			{
+				"name": "_owner",
+				"type": "address"
+			},
+			{
+				"name": "_tokens",
+				"type": "uint256"
+			}
+		],
+		"name": "unwrap",
+		"outputs": [
+			{
+				"name": "success",
+				"type": "bool"
+			}
+		],
+		"payable": false,
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"constant": false,
+		"inputs": [
+			{
+				"name": "_tokens",
+				"type": "uint256"
+			}
+		],
+		"name": "unwrap",
+		"outputs": [
+			{
+				"name": "success",
+				"type": "bool"
+			}
+		],
+		"payable": false,
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"constant": false,
+		"inputs": [
+			{
+				"name": "_owner",
+				"type": "address"
+			},
+			{
 				"name": "_token",
 				"type": "address"
 			},
@@ -543,26 +371,59 @@
 		"type": "function"
 	},
 	{
-		"constant": true,
+		"constant": false,
 		"inputs": [
 			{
 				"name": "_token",
 				"type": "address"
 			},
 			{
+				"name": "_tokens",
+				"type": "uint256"
+			}
+		],
+		"name": "withdraw",
+		"outputs": [
+			{
+				"name": "success",
+				"type": "bool"
+			}
+		],
+		"payable": false,
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"constant": false,
+		"inputs": [
+			{
 				"name": "_owner",
 				"type": "address"
 			}
 		],
-		"name": "balanceOf",
+		"name": "wrap",
 		"outputs": [
 			{
-				"name": "balance",
-				"type": "uint256"
+				"name": "success",
+				"type": "bool"
 			}
 		],
-		"payable": false,
-		"stateMutability": "view",
+		"payable": true,
+		"stateMutability": "payable",
+		"type": "function"
+	},
+	{
+		"constant": false,
+		"inputs": [],
+		"name": "wrap",
+		"outputs": [
+			{
+				"name": "success",
+				"type": "bool"
+			}
+		],
+		"payable": true,
+		"stateMutability": "payable",
 		"type": "function"
 	},
 	{
@@ -739,5 +600,144 @@
 		],
 		"name": "OwnershipTransferred",
 		"type": "event"
+	},
+	{
+		"constant": true,
+		"inputs": [
+			{
+				"name": "_token",
+				"type": "address"
+			},
+			{
+				"name": "_owner",
+				"type": "address"
+			},
+			{
+				"name": "_depth",
+				"type": "uint256"
+			}
+		],
+		"name": "balanceOf",
+		"outputs": [
+			{
+				"name": "balance",
+				"type": "uint256"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [
+			{
+				"name": "_token",
+				"type": "address"
+			},
+			{
+				"name": "_owner",
+				"type": "address"
+			}
+		],
+		"name": "balanceOf",
+		"outputs": [
+			{
+				"name": "balance",
+				"type": "uint256"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [],
+		"name": "getPredecessor",
+		"outputs": [
+			{
+				"name": "",
+				"type": "address"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [],
+		"name": "getRevision",
+		"outputs": [
+			{
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [],
+		"name": "getSuccessor",
+		"outputs": [
+			{
+				"name": "",
+				"type": "address"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [],
+		"name": "newOwner",
+		"outputs": [
+			{
+				"name": "",
+				"type": "address"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [],
+		"name": "owner",
+		"outputs": [
+			{
+				"name": "",
+				"type": "address"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [
+			{
+				"name": "_interfaceID",
+				"type": "bytes4"
+			}
+		],
+		"name": "supportsInterface",
+		"outputs": [
+			{
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"payable": false,
+		"stateMutability": "pure",
+		"type": "function"
 	}
 ]
