@@ -5,7 +5,7 @@ pragma solidity ^0.4.25;
  * Copyright (c) 2019 Decentralization Authority MDAO.
  * Released under the MIT License.
  *
- * ZeroCache - AmTrust (rev0)
+ * ZeroCache - AmTrust (First Edition)
  *
  *             -----------------------------------------------------------------
  *
@@ -34,7 +34,7 @@ pragma solidity ^0.4.25;
  *             For more information, please visit:
  *             https://0net.io/zerocache.bit
  *
- * Version 19.2.20
+ * Version 19.2.21
  *
  * https://d14na.org
  * support@d14na.org
@@ -278,10 +278,10 @@ contract ZeroCache is Owned {
     using SafeMath for uint;
 
     /* Initialize predecessor contract. */
-    address public predecessor;
+    address private _predecessor;
 
     /* Initialize successor contract. */
-    address public successor;
+    address private _successor;
 
     /* Initialize revision number. */
     uint private _revision;
@@ -347,12 +347,12 @@ contract ZeroCache is Owned {
      */
     constructor() public {
         /* Set predecessor address. */
-        predecessor = 0xA6CB833eA8127Aa628152720b622F6B4d002fCD8;
+        _predecessor = 0x83C92764A243522d1929C1fe32c1F2DDE7dF2FbE;
 
         /* Verify predecessor address. */
-        if (predecessor != 0x0) {
+        if (_predecessor != 0x0) {
             /* Retrieve the last revision number (if available). */
-            uint lastRevision = ZeroCache(predecessor).getRevision();
+            uint lastRevision = ZeroCache(_predecessor).getRevision();
 
             /* Set (current) revision number. */
             _revision = lastRevision + 1;
@@ -955,10 +955,9 @@ contract ZeroCache is Owned {
      * Migrate
      */
     function migrate(
-        address[] _tokens,
-        bool _preApproved
+        address[] _tokens
     ) external returns (bool success) {
-        return _migrate(msg.sender, _tokens, _preApproved);
+        return _migrate(msg.sender, _tokens);
     }
 
     /**
@@ -969,61 +968,58 @@ contract ZeroCache is Owned {
      */
     function migrate(
         address _owner,
-        address[] _tokens,
-        bool _preApproved
+        address[] _tokens
     ) onlyAuthBy0Admin external returns (bool success) {
-        return _migrate(_owner, _tokens, _preApproved);
+        return _migrate(_owner, _tokens);
     }
 
     /**
      * Sweep (private)
      *
      * Allows for the full balance transfer of an individual token
-     * from this instance into the latest instance of ZeroCache
+     * from previous instance(s) into this instance of ZeroCache.
      *
-     * NOTE: Account value read from the Zer0net Db `zerocache.latest`.
+     * NOTE: This function is mostly optional; as all balance requests
+     *       and transfers are built to aggregate nearly ALL deployed
+     *       instances of ZeroCache in existence.
      *
-     * TODO As the WETH contract DOES NOT support
+     * FIXME Add depth, to allow for multiple predecessors.
+     *
+     * FIXME As the WETH contract DOES NOT support
      *      `ApproveAndCallFallBack`, we must first get an allowance.
      */
     function _migrate(
         address _owner,
-        address[] _tokens,
-        bool _preApproved
+        address[] _tokens
     ) private returns (bool success) {
         /* Loop through all tokens. */
         for (uint i = 0; i < _tokens.length; i++) {
             /* Set token. */
             address token = _tokens[i];
 
-            // TODO IS THIS A WETH TOKEN??
+            /* Set (predecessor) instance. */
+            address instance = getPredecessor();
 
-            /* Retrieve available balance. */
-            uint balance = _balances[token][_owner];
+            /* Retrieve total balance. */
+            uint balance = ZeroCache(instance).balanceOf(token, _owner);
 
-            /* Reduce owner's balance to zero. */
-            // NOTE: Do this now to prevent re-entry attack.
-            _balances[token][_owner] = 0;
+            /* Validate WETH contract (requires approval). */
+            // NOTE: WETH contract DOES NOT support `ApproveAndCallFallBack`.
+            if (token == address(_weth())) {
+                /* Request approval. */
+                _weth().approve(instance, balance);
 
-            /* Pull latest instance address from Zer0net Db. */
-            address latestCache = _zer0netDb.getAddress(
-                keccak256('zerocache.latest'));
-
-            /* Set data to owner (address). */
-            // NOTE: Required to assign tokens after being received
-            //       by the new contract instance.
-            bytes memory data = abi.encodePacked(_owner);
-
-            /**
-             * Transfer full balance to owner's account on the
-             * latest instance.
-             */
-            if (_preApproved) {
-                ZeroCache(latestCache).deposit(
-                    token, address(this), balance, data);
+                /* Transfer tokens. */
+                _weth().transfer(address(this), balance);
             } else {
+                /* Set data to owner (address). */
+                // NOTE: Required to assign tokens after being received
+                //       by the new contract instance.
+                bytes memory data = abi.encodePacked(_owner);
+
+                /* Transfer full balance to current ZeroCache instance. */
                 ApproveAndCallFallBack(token).approveAndCall(
-                    latestCache, balance, data);
+                        address(this), balance, data);
             }
 
             /* Record to event log. */
@@ -1049,6 +1045,20 @@ contract ZeroCache is Owned {
     }
 
     /**
+     * Get Predecessor (Address)
+     */
+    function getPredecessor() public view returns (address) {
+        return _predecessor;
+    }
+
+    /**
+     * Get Successor (Address)
+     */
+    function getSuccessor() public view returns (address) {
+        return _successor;
+    }
+
+    /**
      * Get the token balance for account `tokenOwner`
      */
     function balanceOf(
@@ -1070,13 +1080,36 @@ contract ZeroCache is Owned {
         address _owner,
         uint _depth
     ) public constant returns (uint balance) {
+        /* Initialize active instance (to current predecessor). */
+        address activeInstance = _predecessor;
+
+        /* Initialize total previous balance. */
+        uint totalPreviousBalance = 0;
+
         /* Loop through previous instances for balance. */
         for (uint i = 0; i < _depth; i++) {
-            // TODO Determine MAXIMUM depth and restrict.
+            /* Retrieve balance. */
+            uint activeBalance = ZeroCache(activeInstance)
+                .balanceOf(_token, _owner);
+
+            /* Add to previous balance total. */
+            totalPreviousBalance = totalPreviousBalance.add(activeBalance);
+
+            /* Set the next active instance / predecessor (if available). */
+            activeInstance = ZeroCache(activeInstance).getPredecessor();
+
+            /* Validate active instance. */
+            if (activeInstance == 0x0) {
+                /* Break the loop. */
+                break;
+            }
         }
 
-        /* Retrieve balance. */
+        /* Retrieve (current) balance. */
         balance = _balances[_token][_owner];
+
+        /* Add total previous balance. */
+        balance = balance.add(totalPreviousBalance);
     }
 
 
@@ -1092,10 +1125,10 @@ contract ZeroCache is Owned {
      * This is the contract address that replaced this current instnace.
      */
     function setSuccessor(
-        address _successor
+        address _newSuccessor
     ) onlyAuthBy0Admin external returns (bool success) {
-        /* Set successor account. */
-        successor = _successor;
+        /* Set successor contract. */
+        _successor = _newSuccessor;
 
         /* Return success. */
         return true;
@@ -1249,35 +1282,6 @@ contract ZeroCache is Owned {
         if (_from != authorizedAccount) {
             return false;
         }
-
-        /* Return success. */
-        return true;
-    }
-
-    function _isAccountOpen(
-        // address _account
-    ) private pure returns (bool success) {
-        // TODO
-        // 1. Check `mapping(address => bool) _accountStatus`
-        // 2. OR... create struct for `Accounts`
-
-        /* Return success. */
-        return true;
-    }
-
-    /**
-     * Close Account
-     *
-     * Sets a flag to indicate that ALL tokens have been
-     * transferred out of the Cache and no further activity
-     * is permitted to take place for this account.
-     */
-    function _closeAccount(
-        // address _account
-    ) private pure returns (bool success) {
-        // TODO
-        // 1. Validate no tokens exist.
-        // 2. Disable user execution.
 
         /* Return success. */
         return true;
