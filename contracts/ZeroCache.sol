@@ -225,10 +225,10 @@ contract WETHInterface {
     function transfer(address dst, uint wad) public returns (bool);
     function transferFrom(address src, address dst, uint wad) public returns (bool);
 
-    event  Approval(address indexed src, address indexed guy, uint wad);
-    event  Transfer(address indexed src, address indexed dst, uint wad);
-    event  Deposit(address indexed dst, uint wad);
-    event  Withdrawal(address indexed src, uint wad);
+    event Approval(address indexed src, address indexed guy, uint wad);
+    event Transfer(address indexed src, address indexed dst, uint wad);
+    event Deposit(address indexed dst, uint wad);
+    event Withdrawal(address indexed src, uint wad);
 }
 
 
@@ -237,12 +237,6 @@ contract WETHInterface {
  * ERC-165 Interface
  */
 contract ERC165 {
-    /// @notice Query if a contract implements an interface
-    /// @param interfaceID The interface identifier, as specified in ERC-165
-    /// @dev Interface identification is specified in ERC-165. This function
-    ///  uses less than 30,000 gas.
-    /// @return `true` if the contract implements `interfaceID` and
-    ///  `interfaceID` is not 0xffffffff, `false` otherwise
     function supportsInterface(bytes4 interfaceID) external view returns (bool);
 }
 
@@ -269,10 +263,9 @@ contract ERC165 {
  *      in real-time, based on a user's pre-selected financial profile.
  *
  *      Initial support for the following cryptos:
- *          - Ethereum (WETH)   : Wrapped Ether (used for on-chain gas/fuel)
- *          - MakerDAO (DAI)    : Stable coin (used for e-commerce)
- *          - ZeroGold (0GOLD)  : Staek token (used for collateral)
- *          - 0xBitcoin (0xBTC) : Premier mineable token (test extended support)
+ *          - Ethereum (WETH)   : HODL as a long-term growth investment.
+ *          - MakerDAO (DAI)    : SPEDN on digital goods and services.
+ *          - ZeroGold (0GOLD)  : STAEK to access premium features and services.
  */
 contract ZeroCache is Owned {
     using SafeMath for uint;
@@ -391,9 +384,9 @@ contract ZeroCache is Owned {
      *       DOES NOT provide enough gas for us to lookup the
      *       specific address for our network.
      *
-     * NOTE: This contract requires ~50k gas to wrap ETH using
-     *       the fallback/wrap functions. However, it will
-     *       require ~80k to initialize on first-use.
+     * NOTE: This contract requires ~50k gas to wrap ETH using the
+     *       fallback/wrap functions. However, it will require ~80k
+     *       to initialize on first-use.
      */
     function () public payable {
         /* Initialize WETH contract flag. */
@@ -469,27 +462,32 @@ contract ZeroCache is Owned {
         address wethAddress = _weth();
 
         /* Forward this payable ether into the wrapping contract. */
+        // NOTE: Transfer ETH before balance credit to prevent re-entry attack.
         success = wethAddress.call
             .gas(200000)
             .value(msg.value)
             (abi.encodeWithSignature("deposit()"));
 
-        /* Calculate new balance. */
-        uint newBalance = _balances[wethAddress][_owner].add(msg.value);
+        /* Validate transfer. */
+        if (success) {
+            /* Increase WETH balance by sent value. */
+            _balances[wethAddress][_owner] =
+                _balances[wethAddress][_owner].add(msg.value);
 
-        /* Increase WETH balance by sent value. */
-        _balances[wethAddress][_owner] = newBalance;
+            /* Initialize empty data (for event log). */
+            bytes memory data;
 
-        /* Initialize empty data (for event log). */
-        bytes memory data;
-
-        /* Broadcast event. */
-        emit Deposit(
-            wethAddress,
-            _owner,
-            msg.value,
-            data
-        );
+            /* Broadcast event. */
+            emit Deposit(
+                wethAddress,
+                _owner,
+                msg.value,
+                data
+            );
+        } else {
+            /* Report error. */
+            revert('An error occurred while wrapping your ETH.');
+        }
     }
 
     /**
@@ -523,8 +521,8 @@ contract ZeroCache is Owned {
     /**
      * Unwrap
      *
-     * When this contract has control of wrapped eth, this is a way to easily
-     * withdraw it as ether if there is any Ether in the contract.
+     * Allows an owner to unwrap their Ether from the
+     * canonical WETH contract.
      */
     function _unwrap(
         address _owner,
@@ -539,22 +537,30 @@ contract ZeroCache is Owned {
         }
 
         /* Decrease WETH balance by sent value. */
-        _balances[wethAddress][_owner] = _balances[wethAddress][_owner].sub(_tokens);
+        // NOTE: Decrease balance before transfer to prevent re-entry attack.
+        _balances[wethAddress][_owner] =
+            _balances[wethAddress][_owner].sub(_tokens);
 
         /* Withdraw ETH from Wrapper contract. */
         success = wethAddress.call
             .gas(200000)
             (abi.encodeWithSignature("withdraw(uint256)", _tokens));
 
-        /* Transfer "unwrapped" Ether (ETH) back to owner. */
-        _owner.transfer(_tokens);
+        /* Validate withdrawal. */
+        if (success) {
+            /* Transfer "unwrapped" Ether (ETH) back to owner. */
+            _owner.transfer(_tokens);
 
-        /* Record to event log. */
-        emit Withdraw(
-            wethAddress,
-            _owner,
-            _tokens
-        );
+            /* Broadcast event. */
+            emit Withdraw(
+                wethAddress,
+                _owner,
+                _tokens
+            );
+        } else {
+            /* Report error. */
+            revert('An error occurred while unwrapping your ETH.');
+        }
     }
 
     /**
@@ -596,8 +602,15 @@ contract ZeroCache is Owned {
     /**
      * Deposit
      *
-     * NOTE: This function requires pre-approval from the token
-     *       contract for the amount requested.
+     * Deposits ANY ERC20-compatible token into this contract;
+     * to be managed as ZeroCache.
+     *
+     * NOTE: Owners maintain 100% control* of their token(s)
+     *       at all times.
+     *
+     *       * Administrators have the ability to return tokens
+     *         back to their ORIGINAL owners AT ANY TIME.
+     *         FOR COMPLIANCE PURPOSES ONLY
      */
     function _deposit(
         address _token,
@@ -606,6 +619,7 @@ contract ZeroCache is Owned {
         bytes _data
     ) private returns (bool success) {
         /* Transfer the ERC-20 tokens into Cache. */
+        // NOTE: Transfer tokens before credit to prevent re-entry attack.
         ERC20Interface(_token).transferFrom(
             _from, address(this), _tokens);
 
@@ -683,13 +697,14 @@ contract ZeroCache is Owned {
         }
 
         /* Decrease owner balance by token amount. */
+        // NOTE: Decrease balance before transfer to prevent re-entry attack.
         _balances[_token][_owner] =
             _balances[_token][_owner].sub(_tokens);
 
         /* Transfer requested tokens to owner. */
         ERC20Interface(_token).transfer(_owner, _tokens);
 
-        /* Record to event log. */
+        /* Broadcast event. */
         emit Withdraw(_token, _owner, _tokens);
 
         /* Return success. */
@@ -730,8 +745,8 @@ contract ZeroCache is Owned {
      * This staek is 100% optional, as Standard Delivery will be
      * FREE FOREVER!
      *
-     * TODO: Let's implement GasToken to provide staekholder an opportunity
-     *       to hedge against the volatility of the gas price.
+     * TODO: Let's implement GasToken to provide staekholders an opportunity
+     *       to hedge against the volatility of future gas prices.
      *       (source: https://gastoken.io/)
      */
     function transfer(
@@ -766,13 +781,13 @@ contract ZeroCache is Owned {
             _signature
         );
 
-        /* Validate signature. */
+        /* Validate authorization. */
         if (!requestHasAuthSig) {
             revert('Oops! This relay request is NOT valid.');
         }
 
         /* Validate boost fee and pay (if necessary). */
-        if (_staek > 0) {
+        if (_staekholder != 0x0 && _staek > 0) {
             _addStaek(_from, _staekholder, _staek);
         }
 
@@ -784,11 +799,8 @@ contract ZeroCache is Owned {
     /**
      * Transfer
      *
-     * Transfers the "specified" ERC-20 tokens held by the sender
+     * Transfers the "specified" ERC-20 token(s) held by the sender
      * to the receiver's account.
-     *
-     * TODO Determine the MAXIMUM depth that can be requested
-     *      and set a HARD LIMIT.
      */
     function _transfer(
         address _from,
@@ -802,6 +814,7 @@ contract ZeroCache is Owned {
         }
 
         /* Remove the transfer value from sender's balance. */
+        // NOTE: We decrease balance before adding to prevent re-entry attack.
         _balances[_token][_from] = _balances[_token][_from].sub(_tokens);
 
         /* Add the transfer value to the receiver's balance. */
@@ -905,6 +918,7 @@ contract ZeroCache is Owned {
         }
 
         /* Decrease owner balance by token amount. */
+        // NOTE: Decrease balance before transfer to prevent re-entry attack.
         _balances[zgAddress][_owner] =
             _balances[zgAddress][_owner].sub(_tokens);
 
@@ -960,7 +974,7 @@ contract ZeroCache is Owned {
             _signature
         );
 
-        /* Validate signature. */
+        /* Validate authorization. */
         if (!requestHasAuthSig) {
             revert('Oops! This cancel request is NOT valid.');
         }
@@ -991,7 +1005,7 @@ contract ZeroCache is Owned {
     /**
      * Migrate
      *
-     * Allows for the full balance transfer of an individual token
+     * Allows for the full balance transfer of a multiple token(s)
      * from legacy instance(s) to the LATEST instance of ZeroCache.
      */
     function _migrate(
@@ -1010,11 +1024,12 @@ contract ZeroCache is Owned {
             address token = _tokens[i];
 
             /* Retrieve balance. */
-            // NOTE: Explicitly set depth to `0`, for ONLY this instance.
+            // NOTE: Explicitly set depth to `0`, to retrieve the
+            //       balance for ONLY this instance.
             uint balance = balanceOf(token, _owner, 0);
 
             /* Decrease owner balance to ZERO. */
-            // NOTE: We do this here to prevent re-entry attacks.
+            // NOTE: Balance is ZEROED here to prevent re-entry attack.
             _balances[token][_owner] = 0;
 
             /* Validate WETH contract (requires `unwrap`). */
@@ -1048,7 +1063,7 @@ contract ZeroCache is Owned {
                 success = true;
             }
 
-            /* Record to event log. */
+            /* Broadcast event. */
             emit Migrate(token, _owner, balance);
         }
     }
@@ -1096,7 +1111,8 @@ contract ZeroCache is Owned {
     /**
      * Get the token balance for account `tokenOwner`
      *
-     * TODO Process depth requests greater than 0
+     * NOTE: Supports a virtually unlimited depth,
+     *       limited ONLY by the supplied gas amount.
      */
     function balanceOf(
         address _token,
