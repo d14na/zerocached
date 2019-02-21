@@ -72,46 +72,8 @@ library SafeMath {
  * Contract function to validate signature of pre-approved token transfers.
  * (borrowed from LavaWallet)
  */
-library ECRecovery {
-    /**
-     * @dev Recover signer address from a message by using their signature
-     *
-     * @param hash bytes32 The hash of the signed message.
-     * @param sig bytes The signature generated using web3.eth.sign().
-     */
-    function recover(
-        bytes32 hash,
-        bytes sig
-    ) public pure returns (address) {
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-
-        // NOTE: Check the signature length.
-        if (sig.length != 65) {
-            return (address(0));
-        }
-
-        // NOTE: Divide the signature in r, s and v variables.
-        assembly {
-            r := mload(add(sig, 32))
-            s := mload(add(sig, 64))
-            v := byte(0, mload(add(sig, 96)))
-        }
-
-        // NOTE: Version of signature should be 27 or 28,
-        //       but 0 and 1 are also possible versions.
-        if (v < 27) {
-            v += 27;
-        }
-
-        // NOTE: If the version is correct, return the signer address.
-        if (v != 27 && v != 28) {
-            return (address(0));
-        } else {
-            return ecrecover(hash, v, r, s);
-        }
-    }
+contract ECRecovery {
+    function recover(bytes32 hash, bytes sig) public pure returns (address);
 }
 
 
@@ -295,6 +257,11 @@ contract ZeroCache is Owned {
     //       Estimated to be between 100-200
     uint private _MAX_REVISION_DEPTH = 0;
 
+    /* Initialize EC Recovery Library. */
+    // NOTE: This is a static library that has been deployed on-chain
+    //       and is reusable by ALL instances of ZeroCache.
+    address private _EC_RECOVERY_LIBRARY = 0x2d970318c96e26fd67817d28A5EE9F30675ea89e;
+
     event Deposit(
         address indexed token,
         address owner,
@@ -340,7 +307,7 @@ contract ZeroCache is Owned {
      */
     constructor() public {
         /* Set predecessor address. */
-        _predecessor = 0x511C0d732ec9563212c2d316177bFd3317B4B565;
+        _predecessor = 0x5B43c3f14724312eAf644B5507D8716cC10c70e9;
 
         /* Verify predecessor address. */
         if (_predecessor != 0x0) {
@@ -1317,7 +1284,7 @@ contract ZeroCache is Owned {
         }
 
         /* Retrieve the authorized account (address). */
-        address authorizedAccount = ECRecovery.recover(
+        address authorizedAccount = ECRecovery(_EC_RECOVERY_LIBRARY).recover(
             sigHash, _signature);
 
         /* Validate the signer matches owner of the tokens. */
