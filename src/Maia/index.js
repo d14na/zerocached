@@ -33,6 +33,13 @@ class Maia {
         /* Initialize JSON body handler. */
         this.app.use(express.json())
 
+        /* Add CORS. */
+        this.app.use(function (req, res, next) {
+            res.header('Access-Control-Allow-Headers', '*')
+            res.header('Access-Control-Allow-Origin', '*')
+            next()
+        })
+
         /* Initialize endpoints / routes. */
         this.routes = require('../../routes')
 
