@@ -17,4 +17,4 @@ class MarketMaker {
     }
 }
 
-export default MarketMaker
+module.exports = MarketMaker

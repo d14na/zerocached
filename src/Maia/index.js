@@ -1,21 +1,24 @@
 /* Import vendor libraries. */
-import express from 'express'
-import Web3 from 'web3'
+const express = require('express')
+const Web3 = require('web3')
 
 /**
  * Maia (Market Maker Bot)
  */
 class Maia {
-    constructor () {
+    constructor (_relayStation) {
         /* Start initialization. */
-        this._init()
+        this._init(_relayStation)
     }
 
     /**
      * App Initialization.
      */
-    _init () {
+    _init (_relayStation) {
         console.log('Starting Maia initialization...')
+
+        /* Set relay station. */
+        this.relayStation = _relayStation
 
         /* Initialize configuration settings. */
         this.config = require('../../config')
@@ -70,11 +73,16 @@ class Maia {
         /* Start API server. */
         this._startAPIServer()
 
+        /* Set execution interval. */
         setInterval(
             () => {
-                console.log('Hi, it\'s Maia again. Just checking in.')
+                /* Process queue. */
+                this.relayStation.processQueue()
             }, 30000
         )
+
+        /* Process queue at startup. */
+        this.relayStation.processQueue()
     }
 
     /**
@@ -117,4 +125,4 @@ class Maia {
     }
 }
 
-export default Maia
+module.exports = Maia
