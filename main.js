@@ -7,8 +7,13 @@ const MarketMaker = require('./src/MarketMaker')
 const RelayStation = require('./src/RelayStation')
 
 console.log('\n')
-console.log('ZeroCache Daemon v19.2.26 (alpha)')
-console.log('---------------------------------\n')
+if (process.env.NODE_ENV === 'production') {
+    console.log('ZeroCache Daemon v19.2.26 (alpha) [ MAINNET ]')
+    console.log('---------------------------------------------\n')
+} else {
+    console.log('ZeroCache Daemon v19.2.26 (alpha) [ ROPSTEN ]')
+    console.log('---------------------------------------------\n')
+}
 
 /* Create new relay station. */
 const relayStation = new RelayStation()

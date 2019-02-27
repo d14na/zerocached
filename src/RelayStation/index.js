@@ -4,12 +4,18 @@ const Web3 = require('web3')
 /* Initialize Nano connection. */
 const nano = require('nano')('http://localhost:5984')
 
-/* Initialize window.web3 global. */
-// const HTTP_PROVIDER = 'https://mainnet.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
-const HTTP_PROVIDER = 'https://ropsten.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
+/* Initialize blockchain provider. */
+let provider = null
+
+/* Select (http) provider. */
+if (process.env.NODE_ENV === 'production') {
+    provider = 'https://mainnet.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
+} else {
+    provider = 'https://ropsten.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
+}
 
 /* Initialize web3. */
-const web3 = new Web3(new Web3.providers.HttpProvider(HTTP_PROVIDER))
+const web3 = new Web3(new Web3.providers.HttpProvider(provider))
 
 const CONFIG = require('../../config')
 
@@ -32,17 +38,31 @@ class RelayStation {
     _init () {
         console.log('Starting RelayStation initialization...')
 
-        /* Initialize ZeroCache (requests) database. */
-        this.dbRequests = nano.db.use('zerocache_requests')
+        if (process.env.NODE_ENV === 'production') {
+            /* Initialize ZeroCache (requests) database. */
+            this.dbRequests = nano.db.use('zerocache_requests')
 
-        /* Initialize ZeroCache (queued) database. */
-        this.dbQueued = nano.db.use('zerocache_queued')
+            /* Initialize ZeroCache (queued) database. */
+            this.dbQueued = nano.db.use('zerocache_queued')
 
-        /* Initialize ZeroCache (success) database. */
-        this.dbSuccess = nano.db.use('zerocache_success')
+            /* Initialize ZeroCache (success) database. */
+            this.dbSuccess = nano.db.use('zerocache_success')
 
-        /* Initialize ZeroCache (failed) database. */
-        this.dbFailed = nano.db.use('zerocache_failed')
+            /* Initialize ZeroCache (failed) database. */
+            this.dbFailed = nano.db.use('zerocache_failed')
+        } else {
+            /* Initialize ZeroCache (requests) database. */
+            this.dbRequests = nano.db.use('zerocache_requests_ropsten')
+
+            /* Initialize ZeroCache (queued) database. */
+            this.dbQueued = nano.db.use('zerocache_queued_ropsten')
+
+            /* Initialize ZeroCache (success) database. */
+            this.dbSuccess = nano.db.use('zerocache_success_ropsten')
+
+            /* Initialize ZeroCache (failed) database. */
+            this.dbFailed = nano.db.use('zerocache_failed_ropsten')
+        }
 
         /* Initialize queue. */
         this.queue = []
@@ -163,6 +183,9 @@ class RelayStation {
     async _processTx (_nextRequest) {
         console.log(`Maia is processing next request from [ ${_nextRequest.owner} ]`)
 
+        /* Initialize tx hash (holder). */
+        let txHash = null
+
         /* Initialize encoded ABI. */
         const data = _nextRequest.data
 
@@ -194,24 +217,42 @@ class RelayStation {
         })
 
         signedTx.on('transactionHash', _txHash => {
-            console.log(`[ ${_txHash} ] has been submitted.`)
+            /* Set tx hash. */
+            txHash = _txHash
+
+            console.log(`[ ${txHash} ] has been submitted.`)
         })
 
         signedTx.on('receipt', async _receipt => {
-            console.log('Reciept', _receipt)
+            // console.log('Reciept', _receipt)
 
-            console.log('RECEIPT DOCUMENT REF', _nextRequest.docRef)
+            console.log(`[ ${_receipt.transactionHash} ] has been added to [ block # ${_receipt.blockNumber} ]`)
 
             /* Retrieve document reference. */
             const doc = _nextRequest.docRef
 
+            /* Set owner. */
+            const owner = _nextRequest.owner
+
+            /* Set staek. */
+            const staek = _nextRequest.staek
+
+            /* Set data. */
+            const data = _nextRequest.data
+
+            /* Set receipt. */
+            const receipt = _receipt
+
+            /* Set date created. */
+            const dateCreated = moment().unix()
+
             /* Build entry. */
             const entry = {
-                owner: _nextRequest.owner,
-                staek: _nextRequest.staek,
-                data: _nextRequest.data,
-                receipt: _receipt,
-                dateCreated: moment().unix()
+                owner,
+                staek,
+                data,
+                receipt,
+                dateCreated
             }
 
             /* Insert into (success) database. */
@@ -225,7 +266,7 @@ class RelayStation {
             /* Destroy the record. */
             // NOTE: We err on the side of caution, and ONLY destroy
             //       after recording the successful receipt.
-            result = await this.dbQueued.destroy(doc._id, doc._rev)
+            result = await this.dbQueued.destroy(doc.id, doc.rev)
                 .catch(_error => {
                     console.error('ERROR:', _error)
                 })
@@ -235,20 +276,34 @@ class RelayStation {
 
         signedTx.on('error', async (_error) => {
             // console.error('ERROR:', _error)
-            console.error('ERROR msg:', _error.message)
-
-            console.log('ERROR DOCUMENT REF', _nextRequest.docRef)
+            console.error('ERROR:', _error.message)
 
             /* Retrieve document reference. */
             const doc = _nextRequest.docRef
 
+            /* Set owner. */
+            const owner = _nextRequest.owner
+
+            /* Set staek. */
+            const staek = _nextRequest.staek
+
+            /* Set data. */
+            const data = _nextRequest.data
+
+            /* Set error. */
+            const error = _error.message
+
+            /* Set date created. */
+            const dateCreated = moment().unix()
+
             /* Build entry. */
             const entry = {
-                owner: _nextRequest.owner,
-                staek: _nextRequest.staek,
-                data: _nextRequest.data,
-                error: _error.message,
-                dateCreated: moment().unix()
+                owner,
+                staek,
+                data,
+                txHash,
+                error,
+                dateCreated
             }
 
             /* Insert into (failed) database. */

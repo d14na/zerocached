@@ -46,13 +46,21 @@ class Maia {
         /* Initialize endpoints / routes. */
         this.routes = require('../../routes')
 
-        /* Initialize (default) port number. */
-        this.portNum = 3000
+        if (process.env.NODE_ENV === 'production') {
+            /* Initialize (default) port number. */
+            this.portNum = 3000
 
-        // this.httpProvider = 'https://mainnet.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
-        // this.wsProvider = 'wss://mainnet.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
-        this.httpProvider = 'https://ropsten.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
-        this.wsProvider = 'wss://ropsten.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
+            /* Initialize network providers. */
+            this.httpProvider = 'https://mainnet.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
+            this.wsProvider = 'wss://mainnet.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
+        } else {
+            /* Initialize (default) port number. */
+            this.portNum = 4000
+
+            /* Initialize network providers. */
+            this.httpProvider = 'https://ropsten.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
+            this.wsProvider = 'wss://ropsten.infura.io/v3/9c75462e9ef54ba3ae559cde271fcf0d'
+        }
 
         /* Initialize Web3. */
         this.web3 = new Web3(new Web3.providers.HttpProvider(this.httpProvider))
