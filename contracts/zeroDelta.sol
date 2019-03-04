@@ -328,8 +328,8 @@ contract ZeroDelta is Owned {
             _amountRequest,
             _tokenOffer,
             _amountOffer,
-            _expires,
-            _nonce,
+            _getExpiration(_expires),
+            _getNonce(_nonce),
             _canPartialFill,
             0
         );
@@ -338,7 +338,7 @@ contract ZeroDelta is Owned {
         _orders[orderId] = order;
 
         /* Retrieve market. */
-        bytes32 marketId = getMarket(_tokenRequest, _tokenOffer);
+        bytes32 marketId = _getMarket(_tokenRequest, _tokenOffer);
 
         /* Broadcast event. */
         emit OrderRequest(
@@ -375,33 +375,6 @@ contract ZeroDelta is Owned {
             revert('Oops! Maker DOES NOT have enough tokens.');
         }
 
-        /* Validate expiration. */
-        if (_expires > block.number.add(_MAX_ORDER_EXPIRATION)) {
-            revert('Oops! You entered an INVALID expiration.');
-        }
-
-        /* Initialize expiration. */
-        uint expiration = 0;
-
-        /* Set expiration. */
-        if (_expires == 0) {
-            /* Auto-set to max value. */
-            expiration = block.number.add(_MAX_ORDER_EXPIRATION);
-        } else {
-            expiration = _expires;
-        }
-
-        /* Initialize nonce. */
-        uint nonce = 0;
-
-        /* Set nonce. */
-        if (_nonce == 0) {
-            /* Auto-set to current timestamp (seconds since unix epoch). */
-            nonce = block.timestamp;
-        } else {
-            nonce = _nonce;
-        }
-
         /* Calculate order id. */
         orderId = keccak256(abi.encodePacked(
             address(this),
@@ -409,8 +382,8 @@ contract ZeroDelta is Owned {
             _amountRequest,
             _tokenOffer,
             _amountOffer,
-            expiration,
-            nonce
+            _getExpiration(_expires),
+            _getNonce(_nonce)
         ));
     }
 
@@ -1003,18 +976,19 @@ contract ZeroDelta is Owned {
     /**
      * Get Market
      *
-     * Supported Markets:
+     * Supported (ZeroGold) Markets:
      *
-     * 1. 0GOLD / WETH      Wrapped Ethereum
-     * 2. 0GOLD / DAI       MakerDAO DAI
-     * 3. 0GOLD / 0xBTC     0xBitcoin Token
-     * 4. 0GOLD / WBTC      Wrapped Bitcoin
+     * 1. 0GOLD / WETH (Wrapped Ethereum)
+     * 2. 0GOLD / DAI (MakerDAO DAI)
+     * 3. 0GOLD / 0xBTC (0xBitcoin Token)
+     * 4. 0GOLD / WBTC (Wrapped Bitcoin)
      *
+     * NOTE: Trading is currently limited to ZeroGold markets ONLY.
      */
-    function getMarket(
+    function _getMarket(
         address _tokenRequest,
         address _tokenOffer
-    ) public view returns (bytes32 market) {
+    ) private view returns (bytes32 market) {
         /* Set ZeroGold address. */
         address zgAddress = _zeroGold();
 
@@ -1024,7 +998,7 @@ contract ZeroDelta is Owned {
         /* Initailize trade token. */
         address tradeToken = 0x0;
 
-        /* ZeroGold markets. */
+        /* Set ZeroGold as base. */
         if (_tokenRequest == zgAddress || _tokenOffer == zgAddress) {
             baseToken = zgAddress;
         }
@@ -1041,7 +1015,7 @@ contract ZeroDelta is Owned {
             tradeToken = _tokenRequest;
         }
 
-        /* Initialize market. */
+        /* Calculate market id. */
         market = keccak256(abi.encodePacked(
             baseToken, tradeToken));
     }
@@ -1141,6 +1115,40 @@ contract ZeroDelta is Owned {
         }
     }
 
+    /**
+     * Get Expiration
+     */
+    function _getExpiration(
+        uint _expires
+    ) private view returns (uint expiration) {
+        /* Validate expiration. */
+        if (_expires > block.number.add(_MAX_ORDER_EXPIRATION)) {
+            revert('Oops! You entered an INVALID expiration.');
+        }
+
+        /* Set expiration. */
+        if (_expires == 0) {
+            /* Auto-set to max value. */
+            expiration = block.number.add(_MAX_ORDER_EXPIRATION);
+        } else {
+            expiration = _expires;
+        }
+    }
+
+    /**
+     * Get Nonce
+     */
+    function _getNonce(
+        uint _nonce
+    ) private view returns (uint nonce) {
+        /* Set nonce. */
+        if (_nonce == 0) {
+            /* Auto-set to current timestamp (seconds since unix epoch). */
+            nonce = block.timestamp;
+        } else {
+            nonce = _nonce;
+        }
+    }
 
     /***************************************************************************
      *
