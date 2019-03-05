@@ -976,48 +976,80 @@ contract ZeroDelta is Owned {
     /**
      * Get Market
      *
-     * Supported (ZeroGold) Markets:
+     * "Officially" Supported ZeroGold Markets
+     * ---------------------------------------
      *
-     * 1. 0GOLD / WETH (Wrapped Ethereum)
-     * 2. 0GOLD / DAI (MakerDAO DAI)
-     * 3. 0GOLD / 0xBTC (0xBitcoin Token)
-     * 4. 0GOLD / WBTC (Wrapped Bitcoin)
+     * 1. 0GOLD / 0xBTC     ZeroGold / 0xBitcoin Token
+     * 2. 0GOLD / DAI       ZeroGold / MakerDAO Dai
+     * 3. 0GOLD / WBTC      ZeroGold / Wrapped Bitcoin
+     * 4. 0GOLD / WETH      ZeroGold / Wrapped Ethereum
      *
-     * NOTE: Trading is currently limited to ZeroGold markets ONLY.
+     * "Officially" Supported MakerDAO Dai Markets
+     * -------------------------------------------
+     *
+     * 1. 0GOLD / DAI               ZeroGold / MakerDAO Dai
+     * 2. 0xBTC / DAI        0xBitcoin Token / MakerDAO Dai
+     * 3.  WBTC / DAI        Wrapped Bitcoin / MakerDAO Dai
+     * 4.  WETH / DAI       Wrapped Ethereum / MakerDAO Dai
+     *
+     * NOTE: ZeroGold will serve as the "official" base token.
+     *       MakerDAO Dai will serve as the "official" quote token.
      */
     function _getMarket(
         address _tokenRequest,
         address _tokenOffer
     ) private view returns (bytes32 market) {
+        /* Set DAI address. */
+        address daiAddress = _dai();
+
         /* Set ZeroGold address. */
         address zgAddress = _zeroGold();
 
         /* Initialize base token. */
         address baseToken = 0x0;
 
-        /* Initailize trade token. */
-        address tradeToken = 0x0;
+        /* Initailize quote token. */
+        address quoteToken = 0x0;
 
-        /* Set ZeroGold as base. */
+        /* Set ZeroGold as base token. */
         if (_tokenRequest == zgAddress || _tokenOffer == zgAddress) {
             baseToken = zgAddress;
         }
 
-        /* Validate base token. */
-        if (baseToken == 0x0) {
+        /* Set ZeroGold as base token. */
+        if (_tokenRequest == daiAddress || _tokenOffer == daiAddress) {
+            quoteToken = daiAddress;
+        }
+
+        /* Validate market pair. */
+        if (baseToken == 0x0 && quoteToken == 0x0) {
             revert('Oops! That market is NOT currently supported.');
         }
 
-        /* Set trade token. */
-        if (baseToken == _tokenRequest) {
-            tradeToken = _tokenOffer;
-        } else {
-            tradeToken = _tokenRequest;
+        // TODO Allow a Base Token to be set, in the case of a non-ZeroGold trade;
+        //      however DAI is required to be pre-set as the quote token.
+
+        /* Validate/set quote token. */
+        if (quoteToken == 0x0) {
+            if (baseToken == _tokenRequest) {
+                quoteToken = _tokenOffer;
+            } else {
+                quoteToken = _tokenRequest;
+            }
+        }
+
+        /* Validate/set base token. */
+        if (baseToken == 0x0) {
+            if (quoteToken == _tokenRequest) {
+                baseToken = _tokenOffer;
+            } else {
+                baseToken = _tokenRequest;
+            }
         }
 
         /* Calculate market id. */
         market = keccak256(abi.encodePacked(
-            baseToken, tradeToken));
+            baseToken, quoteToken));
     }
 
     /**
@@ -1256,6 +1288,26 @@ contract ZeroDelta is Owned {
 
         /* Initialize interface. */
         zeroCache = ZeroCacheInterface(aname);
+    }
+
+    /**
+     * MakerDAO DAI Interface
+     *
+     * Retrieves the current DAI interface,
+     * using the aname record from Zer0netDb.
+     */
+    function _dai() private view returns (
+        ERC20Interface dai
+    ) {
+        /* Initailze hash. */
+        // NOTE: ERC tokens are case-sensitive.
+        bytes32 hash = keccak256('aname.DAI');
+
+        /* Retrieve value from Zer0net Db. */
+        address aname = _zer0netDb.getAddress(hash);
+
+        /* Initialize interface. */
+        dai = ERC20Interface(aname);
     }
 
     /**
