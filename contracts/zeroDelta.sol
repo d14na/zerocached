@@ -397,79 +397,53 @@ contract ZeroDelta is Owned {
      *       the available volume to the order's FULL capacity;
      *       thereby reducing the avaiable trade volume to ZERO.
      */
-    // function cancelOrder(
-    //     address _tokenGet,
-    //     uint _amountGet,
-    //     address _tokenGive,
-    //     uint _amountGive,
-    //     uint _expires,
-    //     uint _nonce,
-    //     bytes _transferSig
-    // ) external {
-    //     /* Initialize (market) maker. */
-    //     address maker = msg.sender;
+    function cancelOrder(
+        bytes32 _orderId
+    ) external {
+        /* Retrieve order details. */
+        (
+            address maker,
+            bytes memory makerSig,
+            address tokenRequest,
+            uint amountRequest,
+            address tokenOffer,
+            uint amountOffer,
+            uint expires,
+            uint nonce,
+            bool canPartialFill,
+            uint amountFilled
+        ) = getOrder(_orderId);
 
-    //     /* Calculate transfer hash. */
-    //     bytes32 transferHash = keccak256(abi.encodePacked(
-    //         address(_zeroCache()),
-    //         _tokenGive,
-    //         maker,
-    //         address(this),
-    //         _tokens,
-    //         _staekholder,
-    //         _staek,
-    //         _expires,
-    //         _nonce
-    //     ));
+        /* Handler for `Unused local variable` warning. */
+        // NOTE: Srsly, how pretty|ugly is this hack??
+        require(
+            (makerSig[0] == 0x0 || makerSig[0] != 0x0) &&
+            (tokenRequest == 0x0 || tokenRequest != 0x0) &&
+            amountOffer >= 0 &&
+            expires >= 0 &&
+            nonce >= 0 &&
+            (canPartialFill == true || canPartialFill != true) &&
+            amountFilled >= 0
+        );
 
-    //     /* Calculate order hash. */
-    //     bytes32 orderHash = keccak256(abi.encodePacked(
-    //         address(this),
-    //         _tokenGet,
-    //         _amountGet,
-    //         _tokenGive,
-    //         _amountGive,
-    //         _expires,
-    //         _nonce
-    //     ));
+        /* Validate MAKER authorized request. */
+        if (msg.sender != maker) {
+            revert('Oops! Your request is NOT authorized.');
+        }
 
-    //     /* Retrieve authorized maker. */
-    //     address authorizedMaker =
-    //         _ecRecovery().recover(keccak256(abi.encodePacked(
-    //             '\x19Ethereum Signed Message:\n32', orderHash)),
-    //             _makerSig
-    //         );
+        /* Fill order. */
+        _setAmountFilled(_orderId, amountRequest);
 
-    //     /* Validate maker signature. */
-    //     if (authorizedMaker != maker) {
-    //         revert('Oops! Your request is NOT authorized.');
-    //     }
+        /* Initialize market id. */
+        bytes32 marketId = keccak256(abi.encodePacked(
+            tokenRequest, tokenOffer));
 
-    //     /* Validate order. */
-    //     if (!_orders[maker][orderHash]) {
-    //         revert('Oops! That order DOES NOT exist.');
-    //     }
-
-    //     /* Fill order. */
-    //     // NOTE: Removes the availability of ALL tokens for trade.
-    //     _orderFills[maker][orderHash] = _amountGet;
-
-    //     /* Initialize market. */
-    //     bytes32 market = keccak256(abi.encodePacked(
-    //         _tokenGet, _tokenGive));
-
-    //     /* Broadcast event. */
-    //     emit Cancel(
-    //         market,
-    //         maker,
-    //         _tokenGet,
-    //         _amountGet,
-    //         _tokenGive,
-    //         _amountGive,
-    //         _expires,
-    //         _nonce
-    //     );
-    // }
+        /* Broadcast event. */
+        emit OrderCancel(
+            marketId,
+            _orderId
+        );
+    }
 
     /**
      * (On-chain <> On-chain) Trade Simulation
@@ -484,10 +458,10 @@ contract ZeroDelta is Owned {
      */
     // function tradeSimulation(
     //     address _maker,
-    //     address _tokenGet,
-    //     uint _amountGet,
-    //     address _tokenGive,
-    //     uint _amountGive,
+    //     address _tokenRequest,
+    //     uint _amountRequest,
+    //     address _tokenOffer,
+    //     uint _amountOffer,
     //     uint _expires,
     //     uint _nonce,
     //     uint _amount,
@@ -500,7 +474,7 @@ contract ZeroDelta is Owned {
     //     uint availableVolume = getAvailableVolume(
     //         _maker,
     //         _tokenGet,
-    //         _amountGet,
+    //         _amountRequest,
     //         _tokenGive,
     //         _amountGive,
     //         _expires,
@@ -534,10 +508,10 @@ contract ZeroDelta is Owned {
      */
     // function trade(
     //     address _maker,
-    //     address _tokenGet,
-    //     uint _amountGet,
-    //     address _tokenGive,
-    //     uint _amountGive,
+    //     address _tokenRequest,
+    //     uint _amountRequest,
+    //     address _tokenOffer,
+    //     uint _amountOffer,
     //     uint _expires,
     //     uint _nonce,
     //     uint _amount
@@ -549,7 +523,7 @@ contract ZeroDelta is Owned {
     //     uint availableVolume = getAvailableVolume(
     //         _maker,
     //         _tokenGet,
-    //         _amountGet,
+    //         _amountRequest,
     //         _tokenGive,
     //         _amountGive,
     //         _expires,
@@ -561,11 +535,11 @@ contract ZeroDelta is Owned {
     //         revert('Oops! Amount requested EXCEEDS available volume.');
     //     }
 
-    //     /* Calculate order hash. */
-    //     bytes32 orderHash = keccak256(abi.encodePacked(
+    //     /* Calculate order id. */
+    //     bytes32 orderId = keccak256(abi.encodePacked(
     //         address(this),
     //         _tokenGet,
-    //         _amountGet,
+    //         _amountRequest,
     //         _tokenGive,
     //         _amountGive,
     //         _expires,
@@ -573,20 +547,20 @@ contract ZeroDelta is Owned {
     //     ));
 
     //     /* Validate order. */
-    //     if (!_orders[_maker][orderHash]) {
+    //     if (!_orders[orderId]) {
     //         revert('Oops! That order DOES NOT exist.');
     //     }
 
     //     /* Add volume to reduce remaining order availability. */
-    //     _orderFills[_maker][orderHash] =
-    //         _orderFills[_maker][orderHash].add(_amount);
+    //     _orderFills[_maker][orderId] =
+    //         _orderFills[_maker][orderId].add(_amount);
 
     //     /* Request atomic trade. */
     //     _trade(
     //         _maker,
     //         taker,
     //         _tokenGet,
-    //         _amountGet,
+    //         _amountRequest,
     //         _tokenGive,
     //         _amountGive,
     //         _amount
@@ -607,10 +581,10 @@ contract ZeroDelta is Owned {
     //     bytes _takerSig,
     //     address _staekholder,
     //     uint _staek,
-    //     address _tokenGet,
-    //     uint _amountGet,
-    //     address _tokenGive,
-    //     uint _amountGive,
+    //     address _tokenRequest,
+    //     uint _amountRequest,
+    //     address _tokenOffer,
+    //     uint _amountOffer,
     //     uint _expires,
     //     uint _nonce,
     //     uint _amount
@@ -619,7 +593,7 @@ contract ZeroDelta is Owned {
     //     uint availableVolume = getAvailableVolume(
     //         _maker,
     //         _tokenGet,
-    //         _amountGet,
+    //         _amountRequest,
     //         _tokenGive,
     //         _amountGive,
     //         _expires,
@@ -631,11 +605,11 @@ contract ZeroDelta is Owned {
     //         revert('Oops! Amount requested EXCEEDS available volume.');
     //     }
 
-    //     /* Calculate order hash. */
-    //     bytes32 orderHash = keccak256(abi.encodePacked(
+    //     /* Calculate order id. */
+    //     bytes32 orderId = keccak256(abi.encodePacked(
     //         address(this),
     //         _tokenGet,
-    //         _amountGet,
+    //         _amountRequest,
     //         _tokenGive,
     //         _amountGive,
     //         _expires,
@@ -644,12 +618,12 @@ contract ZeroDelta is Owned {
 
     //     /* Validate maker. */
     //     bytes32 makerSig = keccak256(abi.encodePacked(
-    //         '\x19Ethereum Signed Message:\n32', orderHash));
+    //         '\x19Ethereum Signed Message:\n32', orderId));
 
     //     /* Calculate trade hash. */
     //     bytes32 tradeHash = keccak256(abi.encodePacked(
     //         _maker,
-    //         orderHash,
+    //         orderId,
     //         _staekholder,
     //         _staek,
     //         _amount
@@ -669,15 +643,15 @@ contract ZeroDelta is Owned {
     //     }
 
     //     /* Add volume to reduce remaining order availability. */
-    //     _orderFills[_maker][orderHash] =
-    //         _orderFills[_maker][orderHash].add(_amount);
+    //     _orderFills[_maker][orderId] =
+    //         _orderFills[_maker][orderId].add(_amount);
 
     //     /* Request atomic trade. */
     //     _trade(
     //         _maker,
     //         _taker,
     //         _tokenGet,
-    //         _amountGet,
+    //         _amountRequest,
     //         _tokenGive,
     //         _amountGive,
     //         _amount
@@ -692,10 +666,10 @@ contract ZeroDelta is Owned {
      *
      * Utilizes a CENTRALIZED order book to manage off-chain trades.
      *
-     * 1. Maker provides a signed `orderHash` along with desired
+     * 1. Maker provides a signed `orderId` along with desired
      *    order/trade parameters.
      *
-     * 2. Taker provides a signed `tradeHash` along with desired
+     * 2. Taker provides a signed `tradeId` along with desired
      *    trade/fulfillment parameters.
      */
     // function trade(
@@ -705,19 +679,19 @@ contract ZeroDelta is Owned {
     //     bytes _takerSig,
     //     address _staekholder,
     //     uint _staek,
-    //     address _tokenGet,
-    //     uint _amountGet,
-    //     address _tokenGive,
-    //     uint _amountGive,
+    //     address _tokenRequest,
+    //     uint _amountRequest,
+    //     address _tokenOffer,
+    //     uint _amountOffer,
     //     uint _amountTaken,
     //     uint _expires,
     //     uint _nonce
     // ) external returns (bool success) {
-    //     /* Calculate order hash. */
-    //     bytes32 orderHash = keccak256(abi.encodePacked(
+    //     /* Calculate order id. */
+    //     bytes32 orderId = keccak256(abi.encodePacked(
     //         address(this),
     //         _tokenGet,
-    //         _amountGet,
+    //         _amountRequest,
     //         _tokenGive,
     //         _amountGive,
     //         _expires,
@@ -726,7 +700,7 @@ contract ZeroDelta is Owned {
 
     //     /* Validate maker. */
     //     bytes32 makerSig = keccak256(abi.encodePacked(
-    //         '\x19Ethereum Signed Message:\n32', orderHash));
+    //         '\x19Ethereum Signed Message:\n32', orderId));
 
     //     /* Retrieve authorized maker. */
     //     address authorizedMaker = _ecRecovery().recover(
@@ -740,7 +714,7 @@ contract ZeroDelta is Owned {
     //     /* Calculate trade hash. */
     //     bytes32 tradeHash = keccak256(abi.encodePacked(
     //         _maker,
-    //         orderHash,
+    //         orderId,
     //         _staekholder,
     //         _staek,
     //         _amountTaken
@@ -768,7 +742,7 @@ contract ZeroDelta is Owned {
     //         _staekholder,
     //         _staek,
     //         _tokenGet,
-    //         _amountGet,
+    //         _amountRequest,
     //         _tokenGive,
     //         _amountGive,
     //         _amountTaken,
@@ -797,10 +771,10 @@ contract ZeroDelta is Owned {
     //     bytes _takerSig,
     //     address _staekholder,
     //     uint _staek,
-    //     address _tokenGet,
-    //     uint _amountGet,
-    //     address _tokenGive,
-    //     uint _amountGive,
+    //     address _tokenRequest,
+    //     uint _amountRequest,
+    //     address _tokenOffer,
+    //     uint _amountOffer,
     //     uint _amountTaken,
     //     uint _expires,
     //     uint _nonce
@@ -819,7 +793,7 @@ contract ZeroDelta is Owned {
     //         _staekholder,
     //         _staek,
     //         _tokenGet,
-    //         _amountGet,
+    //         _amountRequest,
     //         _tokenGive,
     //         _amountGive,
     //         _amountTaken,
@@ -836,14 +810,18 @@ contract ZeroDelta is Owned {
      *
      * Executes an atomic trade between the maker and taker.
      *
-     * We TEMPORARILY transfer pre-authorized `amountGive` quantity
-     * of the MAKER's tokens here from their ZeroCache; we fill
-     * `amountTaken` of the TAKER's trade request; and then return the
-     * unused balance (if any) back to the MAKER.
+     * 1. We TEMPORARILY transfer a pre-authorized `amountGive` quantity
+     *    of the MAKER's tokens here from their ZeroCache.
      *
-     * NOTE: Due to limitations in ZeroCache design security; it is required
-     *       that a MAKER keep 2x their `amountGive` to ensure the ability
-     *       to fill their entire order volume.
+     * 2. We calculate `amountTaken` of the TAKER's trade request,
+     *    immediately return the unused balance (if any) back to the MAKER.
+     *
+     * 3. We then transfer the reserved balance to the TAKER,
+     *    completing the transaction.
+     *
+     * NOTE: Due to restrictions in ZeroCache "signature-based" design security;
+     *       it is recommended that a MAKER preserve 2x their `amountGive` within
+     *       ZeroCache, to guarantee the ability to fill the order's entire volume.
      */
     function _trade(
         bytes32 _orderId,
@@ -882,6 +860,7 @@ contract ZeroDelta is Owned {
         uint paymentAmount = amountOffer.mul(_amountTaken).div(amountRequest);
 
         /* Transer tokens from MAKER to ZeroDelta. */
+        // NOTE: This is a PRE-AUTHORIZED transfer request using `makerSig`.
         _zeroCache().transfer(
             tokenOffer,
             maker,
@@ -906,7 +885,8 @@ contract ZeroDelta is Owned {
         /* Transer (payment) tokens from TAKER to MAKER. */
         // WARNING Do this BEFORE TAKER transfer to safeguard against
         // a re-entry attack.
-        // NOTE: Allows for a staekholder, to expedite the transfer.
+        // NOTE: This is a PRE-AUTHORIZED transfer request using `takerSig`,
+        //       while also allowing for a staekholder to expedite the transfer.
         _zeroCache().transfer(
             tokenRequest,
             _taker,
@@ -929,13 +909,13 @@ contract ZeroDelta is Owned {
             _amountTaken
         );
 
-        /* Initialize market. */
-        bytes32 market = keccak256(abi.encodePacked(
+        /* Initialize market id. */
+        bytes32 marketId = keccak256(abi.encodePacked(
             tokenRequest, tokenOffer));
 
         /* Broadcast event. */
         emit TradeComplete(
-            market,
+            marketId,
             _orderId,
             _taker,
             _amountTaken
@@ -1022,12 +1002,11 @@ contract ZeroDelta is Owned {
         }
 
         /* Validate market pair. */
+        // NOTE: Either ZeroGold OR Dai MUST be specified for a valid
+        //       market to be available.
         if (baseToken == 0x0 && quoteToken == 0x0) {
             revert('Oops! That market is NOT currently supported.');
         }
-
-        // TODO Allow a Base Token to be set, in the case of a non-ZeroGold trade;
-        //      however DAI is required to be pre-set as the quote token.
 
         /* Validate/set quote token. */
         if (quoteToken == 0x0) {
@@ -1050,6 +1029,21 @@ contract ZeroDelta is Owned {
         /* Calculate market id. */
         market = keccak256(abi.encodePacked(
             baseToken, quoteToken));
+    }
+
+    /**
+     * Get Maker
+     *
+     * Retrieve the MAKER (creator/owner) of the order.
+     */
+    function _getMaker(
+        bytes32 _orderId
+    ) private view returns (address maker) {
+        /* Retrieve order. */
+        Order memory order = _orders[_orderId];
+
+        /* Retrieve maker. */
+        maker = order.maker;
     }
 
     /**
@@ -1124,6 +1118,15 @@ contract ZeroDelta is Owned {
             bool canPartialFill,
             uint amountFilled
         ) = getOrder(_orderId);
+
+        /* Handler for `Unused local variable` warning. */
+        // NOTE: Srsly, how pretty|ugly is this hack??
+        require(
+            (makerSig[0] == 0x0 || makerSig[0] != 0x0) &&
+            (tokenRequest == 0x0 || tokenRequest != 0x0) &&
+            nonce >= 0 &&
+            (canPartialFill == true || canPartialFill != true)
+        );
 
         /* Validate expiration. */
         if (block.number > expires) {
@@ -1212,6 +1215,9 @@ contract ZeroDelta is Owned {
     ) private returns (bool success) {
         /* Set fill amount. */
         _orders[_orderId].amountFilled = _amountFilled;
+
+        /* Return success. */
+        return true;
     }
 
 
