@@ -281,7 +281,7 @@ contract ZeroDelta is Owned {
      */
 
     /**
-     * (On-chain) Order
+     * Create (On-chain) Order
      *
      * Allows a MARKET MAKER to place a new trade request on-chain.
      *
@@ -306,48 +306,61 @@ contract ZeroDelta is Owned {
         bytes _makerSig,
         bool _canPartialFill
     ) external returns (bool success) {
-        /* Initialize (market) maker. */
-        address maker = msg.sender;
-
         /* Create new order request. */
         bytes32 orderId = _createOrderRequest(
-            maker,
+            msg.sender, // Market Maker
             _tokenRequest,
             _amountRequest,
             _tokenOffer,
             _amountOffer,
-            _expires,
-            _nonce
+            _expires, // NOTE: This value is unchecked (NOT SAFE).
+            _nonce // NOTE: This value is unchecked (NOT SAFE).
         );
 
         /* Build order. */
         Order memory order = Order(
-            maker,
+            msg.sender, // Market Maker
             _makerSig,
             _tokenRequest,
             _amountRequest,
             _tokenOffer,
             _amountOffer,
-            _getExpiration(_expires),
-            _getNonce(_nonce),
+            _safeExpiration(_expires),
+            _safeNonce(_nonce),
             _canPartialFill,
-            0
+            uint(0) // amountFilled
         );
 
         /* Save order to storage. */
         _orders[orderId] = order;
 
-        /* Validate new order. */
-        if (!_validateOrderSig(orderId)) {
-            revert('Oops! This order has an INVALID signature.');
-        }
+        /* Calculate transfer hash. */
+        bytes32 transferHash = _calcTransferHash(
+            _tokenOffer,
+            _amountOffer,
+            address(0x0), // staekholder
+            uint(0), // staek amount
+            _safeExpiration(_expires),
+            _safeNonce(_nonce)
+        );
 
-        /* Retrieve market. */
-        bytes32 marketId = _getMarket(_tokenRequest, _tokenOffer);
+        /* Validate request has authorized signature. */
+        // NOTE: A valid transfer signature is required for ZeroCache.
+        bool requestHasAuthSig = _requestHasAuthSig(
+            msg.sender, // Market Maker
+            transferHash,
+            _safeExpiration(_expires),
+            _makerSig
+        );
+
+        /* Validate authorization. */
+        if (!requestHasAuthSig) {
+            revert('Oops! Your order has an INVALID signature.');
+        }
 
         /* Broadcast event. */
         emit OrderRequest(
-            marketId,
+            _calcMarketId(_tokenRequest, _tokenOffer),
             orderId
         );
 
@@ -387,8 +400,8 @@ contract ZeroDelta is Owned {
             _amountRequest,
             _tokenOffer,
             _amountOffer,
-            _getExpiration(_expires),
-            _getNonce(_nonce)
+            _safeExpiration(_expires),
+            _safeNonce(_nonce)
         ));
     }
 
@@ -439,13 +452,9 @@ contract ZeroDelta is Owned {
         /* Fill order. */
         _setAmountFilled(_orderId, amountRequest);
 
-        /* Initialize market id. */
-        bytes32 marketId = keccak256(abi.encodePacked(
-            tokenRequest, tokenOffer));
-
         /* Broadcast event. */
         emit OrderCancel(
-            marketId,
+            _calcMarketId(tokenRequest, tokenOffer),
             _orderId
         );
     }
@@ -872,7 +881,7 @@ contract ZeroDelta is Owned {
             address(this),
             amountOffer,
             address(0x0),
-            0,
+            uint(0),
             expires,
             nonce,
             makerSig
@@ -914,13 +923,9 @@ contract ZeroDelta is Owned {
             _amountTaken
         );
 
-        /* Initialize market id. */
-        bytes32 marketId = keccak256(abi.encodePacked(
-            tokenRequest, tokenOffer));
-
         /* Broadcast event. */
         emit TradeComplete(
-            marketId,
+            _calcMarketId(tokenRequest, tokenOffer),
             _orderId,
             _taker,
             _amountTaken
@@ -928,39 +933,6 @@ contract ZeroDelta is Owned {
 
         /* Return success. */
         return true;
-    }
-
-    /**
-     * Validate Order Signature
-     *
-     * Verify that MAKER's (ZeroCach transfer) signature
-     * can be used to effectively trade.
-     */
-    function _validateOrderSig(
-        bytes32 _orderId
-    ) private view returns (bool isValid) {
-        /* Retrieve order. */
-        Order memory order = _orders[_orderId];
-
-        /* Retrieve MAKER (ZeroCache transfer) signature. */
-        bytes memory makerSig = order.makerSig;
-
-        /* Validate maker. */
-        // bytes32 makerSig = keccak256(abi.encodePacked(
-        //     '\x19Ethereum Signed Message:\n32', _orderId));
-
-        /* Retrieve authorized maker. */
-        // address authorizedMaker = _ecRecovery().recover(
-        //     makerSig, _makerSig);
-
-        /* Validate maker. */
-        // if (authorizedMaker != _maker) {
-        //     revert('Oops! Maker signature is NOT valid.');
-        // }
-
-        /* Retrieve maker. */
-        // maker = order.maker;
-        isValid = true;
     }
 
 
@@ -989,99 +961,6 @@ contract ZeroDelta is Owned {
      */
     function getSuccessor() public view returns (address) {
         return _successor;
-    }
-
-    /**
-     * Get Market
-     *
-     * "Officially" Supported ZeroGold Markets
-     * ---------------------------------------
-     *
-     * 1. 0GOLD / 0xBTC     ZeroGold / 0xBitcoin Token
-     * 2. 0GOLD / DAI       ZeroGold / MakerDAO Dai
-     * 3. 0GOLD / WBTC      ZeroGold / Wrapped Bitcoin
-     * 4. 0GOLD / WETH      ZeroGold / Wrapped Ethereum
-     *
-     * "Officially" Supported MakerDAO Dai Markets
-     * -------------------------------------------
-     *
-     * 1. 0GOLD / DAI               ZeroGold / MakerDAO Dai
-     * 2. 0xBTC / DAI        0xBitcoin Token / MakerDAO Dai
-     * 3.  WBTC / DAI        Wrapped Bitcoin / MakerDAO Dai
-     * 4.  WETH / DAI       Wrapped Ethereum / MakerDAO Dai
-     *
-     * NOTE: ZeroGold will serve as the "official" base token.
-     *       MakerDAO Dai will serve as the "official" quote token.
-     */
-    function _getMarket(
-        address _tokenRequest,
-        address _tokenOffer
-    ) private view returns (bytes32 market) {
-        /* Set DAI address. */
-        address daiAddress = _dai();
-
-        /* Set ZeroGold address. */
-        address zgAddress = _zeroGold();
-
-        /* Initialize base token. */
-        address baseToken = 0x0;
-
-        /* Initailize quote token. */
-        address quoteToken = 0x0;
-
-        /* Set ZeroGold as base token. */
-        if (_tokenRequest == zgAddress || _tokenOffer == zgAddress) {
-            baseToken = zgAddress;
-        }
-
-        /* Set ZeroGold as base token. */
-        if (_tokenRequest == daiAddress || _tokenOffer == daiAddress) {
-            quoteToken = daiAddress;
-        }
-
-        /* Validate market pair. */
-        // NOTE: Either ZeroGold OR Dai MUST be specified for a valid
-        //       market to be available.
-        if (baseToken == 0x0 && quoteToken == 0x0) {
-            revert('Oops! That market is NOT currently supported.');
-        }
-
-        /* Validate/set quote token. */
-        if (quoteToken == 0x0) {
-            if (baseToken == _tokenRequest) {
-                quoteToken = _tokenOffer;
-            } else {
-                quoteToken = _tokenRequest;
-            }
-        }
-
-        /* Validate/set base token. */
-        if (baseToken == 0x0) {
-            if (quoteToken == _tokenRequest) {
-                baseToken = _tokenOffer;
-            } else {
-                baseToken = _tokenRequest;
-            }
-        }
-
-        /* Calculate market id. */
-        market = keccak256(abi.encodePacked(
-            baseToken, quoteToken));
-    }
-
-    /**
-     * Get Maker
-     *
-     * Retrieve the MAKER (creator/owner) of the order.
-     */
-    function _getMaker(
-        bytes32 _orderId
-    ) private view returns (address maker) {
-        /* Retrieve order. */
-        Order memory order = _orders[_orderId];
-
-        /* Retrieve maker. */
-        maker = order.maker;
     }
 
     /**
@@ -1185,41 +1064,6 @@ contract ZeroDelta is Owned {
             } else {
                 availableVolume = tradeBalance;
             }
-        }
-    }
-
-    /**
-     * Get Expiration
-     */
-    function _getExpiration(
-        uint _expires
-    ) private view returns (uint expiration) {
-        /* Validate expiration. */
-        if (_expires > block.number.add(_MAX_ORDER_EXPIRATION)) {
-            revert('Oops! You entered an INVALID expiration.');
-        }
-
-        /* Set expiration. */
-        if (_expires == 0) {
-            /* Auto-set to max value. */
-            expiration = block.number.add(_MAX_ORDER_EXPIRATION);
-        } else {
-            expiration = _expires;
-        }
-    }
-
-    /**
-     * Get Nonce
-     */
-    function _getNonce(
-        uint _nonce
-    ) private view returns (uint nonce) {
-        /* Set nonce. */
-        if (_nonce == 0) {
-            /* Auto-set to current timestamp (seconds since unix epoch). */
-            nonce = block.timestamp;
-        } else {
-            nonce = _nonce;
         }
     }
 
@@ -1380,6 +1224,187 @@ contract ZeroDelta is Owned {
      * UTILITIES
      *
      */
+
+    /**
+     * Calculate Market Identificaiton
+     *
+     * "Officially" Supported ZeroGold Markets
+     * ---------------------------------------
+     *
+     * 1. 0GOLD / 0xBTC     ZeroGold / 0xBitcoin Token
+     * 2. 0GOLD / DAI       ZeroGold / MakerDAO Dai
+     * 3. 0GOLD / WBTC      ZeroGold / Wrapped Bitcoin
+     * 4. 0GOLD / WETH      ZeroGold / Wrapped Ethereum
+     *
+     * "Officially" Supported MakerDAO Dai Markets
+     * -------------------------------------------
+     *
+     * 1. 0GOLD / DAI               ZeroGold / MakerDAO Dai
+     * 2. 0xBTC / DAI        0xBitcoin Token / MakerDAO Dai
+     * 3.  WBTC / DAI        Wrapped Bitcoin / MakerDAO Dai
+     * 4.  WETH / DAI       Wrapped Ethereum / MakerDAO Dai
+     *
+     * NOTE: ZeroGold will serve as the "official" base token.
+     *       MakerDAO Dai will serve as the "official" quote token.
+     */
+    function _calcMarketId(
+        address _tokenRequest,
+        address _tokenOffer
+    ) private view returns (bytes32 market) {
+        /* Set DAI address. */
+        address daiAddress = _dai();
+
+        /* Set ZeroGold address. */
+        address zgAddress = _zeroGold();
+
+        /* Initialize base token. */
+        address baseToken = 0x0;
+
+        /* Initailize quote token. */
+        address quoteToken = 0x0;
+
+        /* Set ZeroGold as base token. */
+        if (_tokenRequest == zgAddress || _tokenOffer == zgAddress) {
+            baseToken = zgAddress;
+        }
+
+        /* Set ZeroGold as base token. */
+        if (_tokenRequest == daiAddress || _tokenOffer == daiAddress) {
+            quoteToken = daiAddress;
+        }
+
+        /* Validate market pair. */
+        // NOTE: Either ZeroGold OR Dai MUST be specified for a valid
+        //       market to be available.
+        if (baseToken == 0x0 && quoteToken == 0x0) {
+            revert('Oops! That market is NOT currently supported.');
+        }
+
+        /* Validate/set quote token. */
+        if (quoteToken == 0x0) {
+            if (baseToken == _tokenRequest) {
+                quoteToken = _tokenOffer;
+            } else {
+                quoteToken = _tokenRequest;
+            }
+        }
+
+        /* Validate/set base token. */
+        if (baseToken == 0x0) {
+            if (quoteToken == _tokenRequest) {
+                baseToken = _tokenOffer;
+            } else {
+                baseToken = _tokenRequest;
+            }
+        }
+
+        /* Calculate market id. */
+        market = keccak256(abi.encodePacked(
+            baseToken, quoteToken));
+    }
+
+    /**
+     * Calculate Transfer Hash
+     *
+     * Calculate the "authorized" transfer hash used by ZeroCache.
+     *
+     * NOTE: We utilize this primarily to help defeat stack depth issues.
+     */
+    function _calcTransferHash(
+        address _token,
+        uint _tokens,
+        address _staekholder,
+        uint _staek,
+        uint _expires,
+        uint _nonce
+    ) private view returns (bytes32 transferHash) {
+        /* Calculate transfer hash. */
+        transferHash = keccak256(abi.encodePacked(
+            address(_zeroCache()),
+            _token,
+            msg.sender,
+            address(this),
+            _tokens,
+            _staekholder,
+            _staek,
+            _expires,
+            _nonce
+        ));
+    }
+
+    /**
+     * Request Hash Authorized Signature
+     *
+     * Validates ALL signature requests by:
+     *     1. Uses ECRecovery to validate the signature.
+     *     2. Verify expiration against the current block number.
+     */
+    function _requestHasAuthSig(
+        address _from,
+        bytes32 _authHash,
+        uint _expires,
+        bytes _signature
+    ) private view returns (bool success) {
+        /* Calculate signature hash. */
+        bytes32 sigHash = keccak256(abi.encodePacked(
+            '\x19Ethereum Signed Message:\n32', _authHash));
+
+        /* Validate the expiration time. */
+        if (block.number > _expires) {
+            return false;
+        }
+
+        /* Retrieve the authorized account (address). */
+        address authorizedAccount =
+            _ecRecovery().recover(sigHash, _signature);
+
+        /* Validate the signer matches owner of the tokens. */
+        if (_from != authorizedAccount) {
+            return false;
+        }
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Safe Expiration
+     *
+     * Validates and returns a safe expiration time.
+     */
+    function _safeExpiration(
+        uint _expires
+    ) private view returns (uint expiration) {
+        /* Validate expiration. */
+        if (_expires > block.number.add(_MAX_ORDER_EXPIRATION)) {
+            revert('Oops! You entered an INVALID expiration.');
+        }
+
+        /* Set expiration. */
+        if (_expires == 0) {
+            /* Auto-set to max value. */
+            expiration = block.number.add(_MAX_ORDER_EXPIRATION);
+        } else {
+            expiration = _expires;
+        }
+    }
+
+    /**
+     * Safe Nonce
+     *
+     * Validates and returns a safe nonce.
+     */
+    function _safeNonce(
+        uint _nonce
+    ) private view returns (uint nonce) {
+        /* Set nonce. */
+        if (_nonce == 0) {
+            /* Auto-set to current timestamp (seconds since unix epoch). */
+            nonce = block.timestamp;
+        } else {
+            nonce = _nonce;
+        }
+    }
 
     /**
      * Convert Bytes to Bytes32
