@@ -11,7 +11,7 @@ pragma solidity ^0.4.25;
  *             are held securely in ZeroCache; and require authorized signatures
  *             of both the MAKER and TAKER for ANY and ALL token transfers.
  *
- * Version 19.3.4
+ * Version 19.3.6
  *
  * https://d14na.org
  * support@d14na.org
@@ -325,8 +325,8 @@ contract ZeroDelta is Owned {
             _amountRequest,
             _tokenOffer,
             _amountOffer,
-            _safeExpiration(_expires),
-            _safeNonce(_nonce),
+            _expires,
+            _nonce,
             _canPartialFill,
             uint(0) // amountFilled
         );
@@ -340,8 +340,8 @@ contract ZeroDelta is Owned {
             _amountOffer,
             address(0x0), // staekholder
             uint(0), // staek amount
-            _safeExpiration(_expires),
-            _safeNonce(_nonce)
+            _expires,
+            _nonce
         );
 
         /* Validate request has authorized signature. */
@@ -349,7 +349,7 @@ contract ZeroDelta is Owned {
         bool requestHasAuthSig = _requestHasAuthSig(
             msg.sender, // Market Maker
             transferHash,
-            _safeExpiration(_expires),
+            _expires,
             _makerSig
         );
 
@@ -385,6 +385,11 @@ contract ZeroDelta is Owned {
         uint _expires,
         uint _nonce
     ) private view returns (bytes32 orderId) {
+        /* Validate expiration. */
+        if (_expires > block.number.add(_MAX_ORDER_EXPIRATION)) {
+            revert('Oops! You entered an INVALID expiration.');
+        }
+
         /* Retrieve maker balance from ZeroCache. */
         uint makerBalance = _zeroCache().balanceOf(_tokenOffer, _maker);
 
@@ -400,8 +405,8 @@ contract ZeroDelta is Owned {
             _amountRequest,
             _tokenOffer,
             _amountOffer,
-            _safeExpiration(_expires),
-            _safeNonce(_nonce)
+            _expires,
+            _nonce
         ));
     }
 
@@ -1365,45 +1370,6 @@ contract ZeroDelta is Owned {
 
         /* Return success. */
         return true;
-    }
-
-    /**
-     * Safe Expiration
-     *
-     * Validates and returns a safe expiration time.
-     */
-    function _safeExpiration(
-        uint _expires
-    ) private view returns (uint expiration) {
-        /* Validate expiration. */
-        if (_expires > block.number.add(_MAX_ORDER_EXPIRATION)) {
-            revert('Oops! You entered an INVALID expiration.');
-        }
-
-        /* Set expiration. */
-        if (_expires == 0) {
-            /* Auto-set to max value. */
-            expiration = block.number.add(_MAX_ORDER_EXPIRATION);
-        } else {
-            expiration = _expires;
-        }
-    }
-
-    /**
-     * Safe Nonce
-     *
-     * Validates and returns a safe nonce.
-     */
-    function _safeNonce(
-        uint _nonce
-    ) private view returns (uint nonce) {
-        /* Set nonce. */
-        if (_nonce == 0) {
-            /* Auto-set to current timestamp (seconds since unix epoch). */
-            nonce = block.timestamp;
-        } else {
-            nonce = _nonce;
-        }
     }
 
     /**
