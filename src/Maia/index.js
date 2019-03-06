@@ -101,11 +101,14 @@ class Maia {
             console.log(`ZeroCache Daemon is now listening... [ port: ${this.portNum} ]`)
         })
 
-        // https://cache.0net.io/v1/limit
-        this.app.get('/v1/limit', this['routes']['limit'].stats.bind(this))
+        // https://cache.0net.io/v1/maker
+        this.app.get('/v1/maker', this['routes']['maker'].stats.bind(this))
 
-        // https://cache.0net.io/v1/market
-        this.app.get('/v1/market', this['routes']['market'].stats.bind(this))
+        // https://cache.0net.io/v1/createOrder
+        this.app.post('/v1/maker/createOrder', this['routes']['maker'].createOrder.bind(this))
+
+        // https://cache.0net.io/v1/taker
+        this.app.get('/v1/taker', this['routes']['taker'].stats.bind(this))
 
         // https://cache.0net.io/v1/transfer
         this.app.get('/v1/transfer', this['routes']['transfer'].stats.bind(this))

@@ -73,9 +73,6 @@ class RelayStation {
         /* Initilize private key. */
         this.privateKey = CONFIG['accounts']['relay'].privateKey
 
-        /* Initialize new account from private key. */
-        // const acct = web3.eth.accounts.privateKeyToAccount(this.privateKey)
-
         /* Initilize address. */
         // FIXME Pull this value dynamically from `aname.zerocache`
         this.contractAddress = '0x565d0859a620aE99052Cc44dDe74b199F13A3433' // ZeroCache

@@ -1,14 +1,14 @@
 {
     "accounts": {
-        "limit": {
+        "maker": {
             "address": "0xE632A8cBfcd7bF9d87dac9B59A039007080658CA",
             "privateKey": "0x0",
-            "description": "Manages limit orders."
+            "description": "Manages market maker orders."
         },
-        "market": {
+        "taker": {
             "address": "0xEB01672F59ebb3dcbcbb02129d864c2dba8d4c6b",
             "privateKey": "0x0",
-            "description": "Manages market orders."
+            "description": "Manages market taker orders."
         },
         "relay": {
             "address": "0x92b554e7C6Edb6C668152751F8dd8ebb32586c35",

@@ -1,15 +1,15 @@
-/* Initialize limit routes. */
-const limit = require('./limit')
+/* Initialize market maker routes. */
+const maker = require('./maker')
 
-/* Initialize market routes. */
-const market = require('./market')
+/* Initialize market taker routes. */
+const taker = require('./taker')
 
 /* Initialize transfer routes. */
 const transfer = require('./transfer')
 
 /* Export homepage. */
 module.exports = {
-    limit,
-    market,
+    maker,
+    taker,
     transfer
 }

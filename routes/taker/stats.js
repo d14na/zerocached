@@ -5,7 +5,7 @@ const moment = require('moment')
  */
 module.exports = function (req, res) {
     /* Initilize private key. */
-    const pk = this['config']['accounts']['limit'].privateKey
+    const pk = this['config']['accounts']['taker'].privateKey
 
     /* Initialize new account from private key. */
     const acct = this.web3.eth.accounts.privateKeyToAccount(pk)
