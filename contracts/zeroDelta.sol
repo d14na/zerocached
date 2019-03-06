@@ -1070,6 +1070,21 @@ contract ZeroDelta is Owned {
     }
 
     /**
+     * Get Maker
+     *
+     * Retrieve the MAKER (creator/owner) of the order.
+     */
+    function _getMaker(
+        bytes32 _orderId
+    ) private view returns (address maker) {
+        /* Retrieve order. */
+        Order memory order = _orders[_orderId];
+
+        /* Retrieve maker. */
+        maker = order.maker;
+    }
+
+    /**
      * Get Order
      *
      * Retrieves the FULL details of an order.
