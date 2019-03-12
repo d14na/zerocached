@@ -38,13 +38,13 @@ To help service the financial needs of the Zeronet community, our team has built
 3. [Enclaves](https://enclaves.io/trade/0GOLD)
 4. [Token Store](https://token.store/trade/0x6ef5bca539a4a01157af842b4823f54f9f7e9968)
 
-### Maia's Limit Account
+### Maia's Maker Account
 
 ##### [0xE632A8cBfcd7bF9d87dac9B59A039007080658CA](https://etherscan.io/address/0xe632a8cbfcd7bf9d87dac9b59a039007080658ca)
 
 _NOTE: trades are reserved to limit orders ONLY_
 
-### Maia's Market Account
+### Maia's Taker Account
 
 ##### [0xEB01672F59ebb3dcbcbb02129d864c2dba8d4c6b](https://etherscan.io/address/0xEB01672F59ebb3dcbcbb02129d864c2dba8d4c6b)
 
@@ -52,19 +52,20 @@ _NOTE: trades are reserved to market orders ONLY_
 
 ## ZPI : Zero(Cache) Price Index
 
-##### Core Prices
+##### Base Tokens
 
-1. __[WETH](https://etherscan.io/token/0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2)__ Wrapped Ether
-2. __[0GOLD](https://etherscan.io/token/0x6ef5bca539a4a01157af842b4823f54f9f7e9968)__ ZeroGold
-3. __[0xBTC](https://etherscan.io/token/0xb6ed7644c69416d67b522e20bc294a9a9b405b31)__ 0xBitcoin Token
+1. __[0GOLD](https://etherscan.io/token/0x6ef5bca539A4A01157af842B4823F54F9f7E9968)__ ZeroGold
+2. __[0xBTC](https://etherscan.io/token/0xB6eD7644C69416d67B522e20bC294A9a9B405B31)__ 0xBitcoin Token
+3. __[WBTC](https://etherscan.io/token/0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599)__ Wrapped Bitcoin
+4. __[WETH](https://etherscan.io/token/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2)__ Wrapped Ether
 
 ##### Mainnet
 
-[0x1b0Ca53Bb5396d0F8492d08E11C7c07F3944b699](https://etherscan.io/address/0x1b0ca53bb5396d0f8492d08e11c7c07f3944b699#code)
+[0x7eBBB6077345aa981ef2B5F189e6f631b41Db10f](https://etherscan.io/address/0x7eBBB6077345aa981ef2B5F189e6f631b41Db10f#code)
 
 ##### Ropsten
 
-[0xC5a1BaEcfd2FceB237b8a9Feab668e8b487E688b](https://ropsten.etherscan.io/address/0xc5a1baecfd2fceb237b8a9feab668e8b487e688b#code) 
+[0xbE6323479f0D315af35Dff1B86a6fC1A5Fe60f42](https://ropsten.etherscan.io/address/0xbE6323479f0D315af35Dff1B86a6fC1A5Fe60f42#code)
 
 ##### Get Trade Price of Single Token
 
