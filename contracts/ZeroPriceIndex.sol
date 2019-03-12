@@ -8,7 +8,7 @@ pragma solidity ^0.4.25;
  * ZeroPriceIndex - Management system for maintaining the trade prices of
  *                  ERC tokens & collectibles listed within ZeroCache.
  *
- * Version 19.2.9
+ * Version 19.3.12
  *
  * https://d14na.org
  * support@d14na.org
@@ -145,28 +145,28 @@ contract Zer0netDbInterface {
 contract ZeroPriceIndex is Owned {
     using SafeMath for uint;
 
-    /* Initialize version number. */
-    uint public version;
-
     /* Initialize predecessor contract. */
-    address public predecessor;
+    address private _predecessor;
 
     /* Initialize successor contract. */
-    address public successor;
+    address private _successor;
+
+    /* Initialize revision number. */
+    uint private _revision;
 
     /* Initialize Zer0net Db contract. */
     Zer0netDbInterface private _zer0netDb;
 
     /* Initialize price update notifications. */
     event PriceUpdate(
-        bytes32 indexed key,
+        bytes32 indexed dataId,
         uint value
     );
 
     /* Initialize price list update notifications. */
     event PriceListUpdate(
-        bytes32 indexed key,
-        string ipfsPath
+        bytes32 indexed listId,
+        bytes ipfsHash
     );
 
     /**
@@ -184,10 +184,11 @@ contract ZeroPriceIndex is Owned {
      *
      * NOTE: All tokens are traded against DAI Stablecoin.
      */
-    string[3] _CORE_TOKENS = [
-        'WETH',     // Wrapped Ether
+    string[4] _CORE_TOKENS = [
         '0GOLD',    // ZeroGold
-        '0xBTC'     // 0xBitcoin Token
+        '0xBTC',    // 0xBitcoin Token
+        'WBTC',     // Wrapped Bitcoin
+        'WETH'      // Wrapped Ether
     ];
 
     /***************************************************************************
@@ -195,6 +196,18 @@ contract ZeroPriceIndex is Owned {
      * Constructor
      */
     constructor() public {
+        /* Set predecessor address. */
+        _predecessor = 0x0;
+
+        /* Verify predecessor address. */
+        if (_predecessor != 0x0) {
+            /* Retrieve the last revision number (if available). */
+            uint lastRevision = ZeroPriceIndex(_predecessor).getRevision();
+
+            /* Set (current) revision number. */
+            _revision = lastRevision + 1;
+        }
+
         /* Initialize Zer0netDb (eternal) storage database contract. */
         // NOTE We hard-code the address here, since it should never change.
         // _zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
@@ -211,6 +224,21 @@ contract ZeroPriceIndex is Owned {
 
         _;      // function code is inserted here
     }
+
+    /**
+     * THIS CONTRACT DOES NOT ACCEPT DIRECT ETHER
+     */
+    function () public payable {
+        /* Cancel this transaction. */
+        revert('Oops! Direct payments are NOT permitted here.');
+    }
+
+
+    /***************************************************************************
+     *
+     * GETTERS
+     *
+     */
 
     /**
      * Get Trade Price (Token)
@@ -258,44 +286,44 @@ contract ZeroPriceIndex is Owned {
     }
 
     /**
-     * Get Trade Price List
+     * Get Trade Price List(s)
      *
-     * An up-to-date trade price index of ZeroCache TOP 100:
-     *     1. ERC-20 Tokens
-     *     2. ERC-721 (Collectible) Tokens
+     * An real-time trade price index of the ZeroCache TOP tokens:
+     *     1. ERC-20
+     *     2. ERC-721 (Collectible)
      *
-     * Also, returns the IPFS address to the complete
-     * ERC-721 (Collectible) trade price listings.
+     * Also, returns the IPFS address(es) to complete
+     * ERC-721 (Collectible) trade price histories.
      *
      * Available Price List Ids [sha3 db keys]:
-     * (prefix = `zero.price.index.`)
-     *     1. ...total          [0xe2b20bfa270d5ae6914affbea57c9c78b8ca2c6020cf8bcb373a4d93097969a0]
-     *     2. ...erc20.total    [0xa8ab0d96095c3871d984acd8bbe0f67263a0fabf821c09d2baae6b972727d8d0]
-     *     3. ...erc20.top100   [0x0e8851764d1b074fb508b60635b42f7b2007c58eee56283b91eeefde5bc944fa]
-     *     4. ...erc20.top1000  [0x57eb960f29b2d1b79561466a35a50b3d0501417756d095c772a995f225623798]
-     *     5. ...erc721.total   [0x4b23268c0b8c5b67112d701f5d2a18f4e1d89668acdc782132a3e51b35668a99]
-     *     6. ...erc721.top100  [0xc186305c869bfdf5a0dede31bc2519c8ffaac0f53848cc6fe3c79863a1f53df2]
-     *     7. ...erc721.top1000 [0xf1bbd36ce08a9d69e7c4f36953d20df111a3f9df9006aa9b0d0c3abd72f370ce]
+     * (prefix = `zpi.ipfs.`)
+     *     1. ...total          [0xd7ea7671063c5fb2c6913499e32dc9fa57ebeaeaea57318fb1c5d85fc2b7bd9a]
+     *     2. ...erc20.total    [0xe2a4d3615b13317181f86cf96dd85e05c8b88398081afe4c28bb7a614cb15d0f]
+     *     3. ...erc20.top100   [0x6e06845611588cbefd856f969d489fd79dfc0f11bdd8b6c033a386ba5629c7e8]
+     *     4. ...erc20.top1000  [0xa591401b1b623d8a9e8e5807dbd9a79cd4ede4270274bbabc20b15415a9386e7]
+     *     5. ...erc721.total   [0xe6685143353a7b4ee6f59925a757017f2638c0ed4cb9376ec8e6e37b4995aed2]
+     *     6. ...erc721.top100  [0xe75054ff8b05a4e8ebaeca5b43579e9f59fb910b50615bd3f225a8fe8c8aea49]
+     *     7. ...erc721.top1000 [0xdae2a49474830953c576849e09151b23c15dd3f8c4e98fbcd27c13b9f5739930]
      *
      * NOTE: All trades are made against DAI stablecoin.
      */
     function tradePriceList(
         string _listId
-    ) external view returns (string ipfsPath) {
-        /* Initailze hash. */
-        bytes32 hash = 0x0;
+    ) external view returns (bytes ipfsHash) {
+        /* Initailze data id. */
+        bytes32 dataId = 0x0;
 
         /* Set hash. */
-        hash = keccak256(abi.encodePacked('zero.price.index.', _listId));
+        dataId = keccak256(abi.encodePacked(_NAMESPACE, '.ipfs.', _listId));
 
-        /* Validate list id. */
-        if (hash == 0x0) {
+        /* Validate data id. */
+        if (dataId == 0x0) {
             /* Default to `...total`. */
-            hash = 0xe2b20bfa270d5ae6914affbea57c9c78b8ca2c6020cf8bcb373a4d93097969a0;
+            dataId = 0xd7ea7671063c5fb2c6913499e32dc9fa57ebeaeaea57318fb1c5d85fc2b7bd9a;
         }
 
-        /* Retrieve value from Zer0net Db. */
-        ipfsPath = _zer0netDb.getString(hash);
+        /* Retrun IPFS hash. */
+        ipfsHash = _zer0netDb.getBytes(dataId);
     }
 
     /**
@@ -305,17 +333,10 @@ contract ZeroPriceIndex is Owned {
      *
      * NOTE: All trades are made against DAI stablecoin.
      */
-    function tradePriceSummary() external view returns (uint[3] summary) {
+    function tradePriceSummary(
+    ) external view returns (uint[4] summary) {
         /* Initailze hash. */
         bytes32 hash = 0x0;
-
-        /* Set hash. */
-        hash = keccak256(abi.encodePacked(
-            _NAMESPACE, '.WETH.', _TRADE_PAIR_BASE
-        ));
-
-        /* Retrieve value from Zer0net Db. */
-        summary[0] = _zer0netDb.getUint(hash);
 
         /* Set hash. */
         hash = keccak256(abi.encodePacked(
@@ -323,7 +344,7 @@ contract ZeroPriceIndex is Owned {
         ));
 
         /* Retrieve value from Zer0net Db. */
-        summary[1] = _zer0netDb.getUint(hash);
+        summary[0] = _zer0netDb.getUint(hash);
 
         /* Set hash. */
         hash = keccak256(abi.encodePacked(
@@ -331,8 +352,52 @@ contract ZeroPriceIndex is Owned {
         ));
 
         /* Retrieve value from Zer0net Db. */
+        summary[1] = _zer0netDb.getUint(hash);
+
+        /* Set hash. */
+        hash = keccak256(abi.encodePacked(
+            _NAMESPACE, '.WBTC.', _TRADE_PAIR_BASE
+        ));
+
+        /* Retrieve value from Zer0net Db. */
         summary[2] = _zer0netDb.getUint(hash);
+
+        /* Set hash. */
+        hash = keccak256(abi.encodePacked(
+            _NAMESPACE, '.WETH.', _TRADE_PAIR_BASE
+        ));
+
+        /* Retrieve value from Zer0net Db. */
+        summary[3] = _zer0netDb.getUint(hash);
     }
+
+    /**
+     * Get Revision (Number)
+     */
+    function getRevision() public view returns (uint) {
+        return _revision;
+    }
+
+    /**
+     * Get Predecessor (Address)
+     */
+    function getPredecessor() public view returns (address) {
+        return _predecessor;
+    }
+
+    /**
+     * Get Successor (Address)
+     */
+    function getSuccessor() public view returns (address) {
+        return _successor;
+    }
+
+
+    /***************************************************************************
+     *
+     * SETTERS
+     *
+     */
 
     /**
      * Set Trade Price (Token)
@@ -340,31 +405,34 @@ contract ZeroPriceIndex is Owned {
      * Keys for trade pairs are encoded using the 'exact' symbol,
      * as listed in their respective contract:
      *
-     *     Wrapped Ether `ZPI.WETH.DAI`
-     *     0xaa840c00b02234222d977a075b41a983e910b0ec8c91fc975a47445ec620d3e1
+     *     ZeroGold `zpi.0GOLD.DAI`
+     *     0x3cf0b17677519ce01176e2dde0338a4d8962be5853b2d83217cc99c527d5629a
      *
-     *     ZeroGold `ZPI.0GOLD.DAI`
-     *     0xdf84929cbe1071e2ac39eebc96c778cf814bb08d423765c5e0fbad95a08b136b
+     *     0xBitcoin Token `zpi.0xBTC.DAI`
+     *     0x9b7396ba7848459ddbaa41b35e502a95d1df654913a5b67c4e7870bd40064612
      *
-     *     0xBitcoin Token `ZPI.0xBTC.DAI`
-     *     0x15368058dc772efcdf5cb4ab485b67fc39e579a5f5c211918831e9f504a483a5
+     *     Wrapped Ether `zpi.WBTC.DAI`
+     *     0x03f90c9c29c9a65eabac4ea5eb624068469de88b5b8557eae0c8778367e8dfae
+     *
+     *     Wrapped Ether `zpi.WETH.DAI`
+     *     0xf2349fd68dcc221f5a12142038d2619c9f73c8e7e95afcd8e0bd5bcd33b291bb
      *
      * NOTE: All trades are made against DAI stablecoin.
      */
     function setTradePrice(
         string _token,
         uint _value
-    ) external onlyAuthBy0Admin returns (bool success) {
-        /* Set hash. */
-        bytes32 hash = keccak256(abi.encodePacked(
+    ) onlyAuthBy0Admin external returns (bool success) {
+        /* Calculate data id. */
+        bytes32 dataId = keccak256(abi.encodePacked(
             _NAMESPACE, '.', _token, '.', _TRADE_PAIR_BASE
         ));
 
         /* Set value in Zer0net Db. */
-        _zer0netDb.setUint(hash, _value);
+        _zer0netDb.setUint(dataId, _value);
 
         /* Broadcast event. */
-        emit PriceUpdate(hash, _value);
+        emit PriceUpdate(dataId, _value);
 
         /* Return success. */
         return true;
@@ -379,17 +447,17 @@ contract ZeroPriceIndex is Owned {
         address _token,
         uint _tokenId,
         uint _value
-    ) external onlyAuthBy0Admin returns (bool success) {
-        /* Set hash. */
-        bytes32 hash = keccak256(abi.encodePacked(
+    ) onlyAuthBy0Admin external returns (bool success) {
+        /* Calculate data id. */
+        bytes32 dataId = keccak256(abi.encodePacked(
             _NAMESPACE, '.', _token, '.', _tokenId
         ));
 
         /* Set value in Zer0net Db. */
-        _zer0netDb.setUint(hash, _value);
+        _zer0netDb.setUint(dataId, _value);
 
         /* Broadcast event. */
-        emit PriceUpdate(hash, _value);
+        emit PriceUpdate(dataId, _value);
 
         /* Return success. */
         return true;
@@ -402,19 +470,19 @@ contract ZeroPriceIndex is Owned {
      */
     function setTradePriceList(
         string _listId,
-        string _ipfsPath
-    ) external onlyAuthBy0Admin returns (bool success) {
+        bytes _ipfsHash
+    ) onlyAuthBy0Admin external returns (bool success) {
         /* Initailze hash. */
         bytes32 hash = 0x0;
 
         /* Set hash. */
-        hash = keccak256(abi.encodePacked('zero.price.index.', _listId));
+        hash = keccak256(abi.encodePacked(_NAMESPACE, '.ipfs.', _listId));
 
         /* Set value in Zer0net Db. */
-        _zer0netDb.setString(hash, _ipfsPath);
+        _zer0netDb.setBytes(hash, _ipfsHash);
 
         /* Broadcast event. */
-        emit PriceListUpdate(hash, _ipfsPath);
+        emit PriceListUpdate(hash, _ipfsHash);
 
         /* Return success. */
         return true;
@@ -431,19 +499,19 @@ contract ZeroPriceIndex is Owned {
      */
     function setAllCoreTradePrices(
         uint[] _values
-    ) external onlyAuthBy0Admin returns (bool success) {
+    ) onlyAuthBy0Admin external returns (bool success) {
         /* Iterate Core Tokens for updating. */
-        for (uint i = 0; i < _CORE_TOKENS.length; i++) {
-            /* Set hash. */
-            bytes32 hash = keccak256(abi.encodePacked(
+        for (uint8 i = 0; i < _CORE_TOKENS.length; i++) {
+            /* Set data id. */
+            bytes32 dataId = keccak256(abi.encodePacked(
                 _NAMESPACE, '.', _CORE_TOKENS[i], '.', _TRADE_PAIR_BASE
             ));
 
             /* Set value in Zer0net Db. */
-            _zer0netDb.setUint(hash, _values[i]);
+            _zer0netDb.setUint(dataId, _values[i]);
 
             /* Broadcast event. */
-            emit PriceUpdate(hash, _values[i]);
+            emit PriceUpdate(dataId, _values[i]);
         }
 
         /* Return success. */
@@ -461,19 +529,19 @@ contract ZeroPriceIndex is Owned {
         address[] _tokens,
         uint[] _tokenIds,
         uint[] _values
-    ) external onlyAuthBy0Admin returns (bool success) {
+    ) onlyAuthBy0Admin external returns (bool success) {
         /* Iterate Core Tokens for updating. */
         for (uint i = 0; i < _tokens.length; i++) {
-            /* Set hash. */
-            bytes32 hash = keccak256(abi.encodePacked(
+            /* Set data id. */
+            bytes32 dataId = keccak256(abi.encodePacked(
                 _NAMESPACE, '.', _tokens[i], '.', _tokenIds[i]
             ));
 
             /* Set value in Zer0net Db. */
-            _zer0netDb.setUint(hash, _values[i]);
+            _zer0netDb.setUint(dataId, _values[i]);
 
             /* Broadcast event. */
-            emit PriceUpdate(hash, _values[i]);
+            emit PriceUpdate(dataId, _values[i]);
         }
 
         /* Return success. */
@@ -481,12 +549,67 @@ contract ZeroPriceIndex is Owned {
     }
 
     /**
-     * THIS CONTRACT DOES NOT ACCEPT DIRECT ETHER
+     * Set Successor
+     *
+     * This is the contract address that replaced this current instnace.
      */
-    function () public payable {
-        /* Cancel this transaction. */
-        revert('Oops! Direct payments are NOT permitted here.');
+    function setSuccessor(
+        address _newSuccessor
+    ) onlyAuthBy0Admin external returns (bool success) {
+        /* Set successor contract. */
+        _successor = _newSuccessor;
+
+        /* Return success. */
+        return true;
     }
+
+
+    /***************************************************************************
+     *
+     * INTERFACES
+     *
+     */
+
+    /**
+     * Supports Interface (EIP-165)
+     *
+     * (see: https://github.com/ethereum/EIPs/blob/master/EIPS/eip-165.md)
+     *
+     * NOTE: Must support the following conditions:
+     *       1. (true) when interfaceID is 0x01ffc9a7 (EIP165 interface)
+     *       2. (false) when interfaceID is 0xffffffff
+     *       3. (true) for any other interfaceID this contract implements
+     *       4. (false) for any other interfaceID
+     */
+    function supportsInterface(
+        bytes4 _interfaceID
+    ) external pure returns (bool) {
+        /* Initialize constants. */
+        bytes4 InvalidId = 0xffffffff;
+        bytes4 ERC165Id = 0x01ffc9a7;
+
+        /* Validate condition #2. */
+        if (_interfaceID == InvalidId) {
+            return false;
+        }
+
+        /* Validate condition #1. */
+        if (_interfaceID == ERC165Id) {
+            return true;
+        }
+
+        // TODO Add additional interfaces here.
+
+        /* Return false (for condition #4). */
+        return false;
+    }
+
+
+    /***************************************************************************
+     *
+     * UTILITIES
+     *
+     */
 
     /**
      * Transfer Any ERC20 Token
@@ -497,8 +620,9 @@ contract ZeroPriceIndex is Owned {
      *      of any accidentally sent ERC20 tokens.
      */
     function transferAnyERC20Token(
-        address tokenAddress, uint tokens
+        address _tokenAddress,
+        uint _tokens
     ) public onlyOwner returns (bool success) {
-        return ERC20Interface(tokenAddress).transfer(owner, tokens);
+        return ERC20Interface(_tokenAddress).transfer(owner, _tokens);
     }
 }
