@@ -1,4 +1,5 @@
 const moment = require('moment')
+const request = require('superagent')
 const Web3 = require('web3')
 
 /* Initialize Nano connection. */
@@ -35,7 +36,7 @@ class MarketMaker {
     /**
      * App Initialization.
      */
-    _init () {
+    async _init () {
         console.log('Starting MarketMaker initialization...')
 
         /* Initilize (from) address. */
@@ -44,12 +45,39 @@ class MarketMaker {
         /* Initilize private key. */
         this.privateKey = CONFIG['accounts']['maker'].privateKey
 
-        /* Initilize address. */
-        // FIXME Pull this value dynamically from `aname.zerocache`
-        this.contractAddress = '0x96B1ba91CA895B56Efd81F32642eA797Fc6e0B89' // ZeroDelta
+        /* Set data id. */
+        // NOTE: keccak256(`aname.zerodelta`)
+        const dataId = '0xbd7239f4aaac15ef5b656f04994d54293ff22d4aac85bedfcb4b68e502db0497'
+
+        /* Initialize endpoint. */
+        let endpoint = null
+
+        /* Select (http) provider. */
+        if (process.env.NODE_ENV === 'production') {
+            endpoint = `https://db.0net.io/v1/getAddress/${dataId}`
+        } else {
+            endpoint = `https://db-ropsten.0net.io/v1/getAddress/${dataId}`
+        }
+
+        /* Make API request. */
+        const response = await request
+            .get(endpoint)
+            .set('accept', 'json')
+            .catch(_error => {
+                console.error('REQUEST ERROR:', _error)
+            })
+
+        // console.log('ZeroDelta ANAME RESPONSE:', response)
+
+        /* Validate response. */
+        if (response && response.body)  {
+            console.log('ZeroDelta ANAME:', response.body)
+
+            /* Set contract address. */
+            this.contractAddress = response.body
+        }
 
         /* Initialize gas price. */
-        // const gasPrice = '20000000000' // default gas price in wei, 20 gwei in this case
         this.gasPrice = '5.5' * 1e9 // or get with web3.eth.gasPrice
 
         /* Initilize abi. */
@@ -79,7 +107,42 @@ class MarketMaker {
 
         console.log('Current block number', blockNumber)
 
-        const anameZeroCache = '0x565d0859a620aE99052Cc44dDe74b199F13A3433'
+        /* Set data id. */
+        // NOTE: keccak256(`aname.zerocache`)
+        const dataId = '0x75341c765d2ccac618fa566b11618076575bdb7620692a552e9ac9ff23a5540c'
+
+        /* Initialize endpoint. */
+        let endpoint = null
+
+        /* Select (http) provider. */
+        if (process.env.NODE_ENV === 'production') {
+            endpoint = `https://db.0net.io/v1/getAddress/${dataId}`
+        } else {
+            endpoint = `https://db-ropsten.0net.io/v1/getAddress/${dataId}`
+        }
+
+        /* Make API request. */
+        const response = await request
+            .get(endpoint)
+            .set('accept', 'json')
+            .catch(_error => {
+                console.error('REQUEST ERROR:', _error)
+            })
+
+        /* Initialize ZeroCache ANAME. */
+        let anameZeroCache = null
+
+        /* Validate response. */
+        if (response && response.body)  {
+            console.log('ZeroCache ANAME:', response.body)
+
+            /* Set ANAME. */
+            anameZeroCache = response.body
+        } else {
+            return console.error('ERROR ZeroCache ANAME:', response)
+        }
+
+        // const anameZeroCache = '0x565d0859a620aE99052Cc44dDe74b199F13A3433'
         const tokenRequest = '0xc778417E063141139Fce010982780140Aa0cD5Ab'
         const amountRequest = '888000000000000000'
         const tokenOffer = '0x079F89645eD85b85a475BF2bdc82c82f327f2932'

@@ -11,7 +11,7 @@ pragma solidity ^0.4.25;
  *             are held securely in ZeroCache; and require authorized signatures
  *             of both the MAKER and TAKER for ANY and ALL token transfers.
  *
- * Version 19.3.6
+ * Version 19.3.12
  *
  * https://d14na.org
  * support@d14na.org

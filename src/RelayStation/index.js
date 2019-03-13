@@ -1,4 +1,5 @@
 const moment = require('moment')
+const request = require('superagent')
 const Web3 = require('web3')
 
 /* Initialize Nano connection. */
@@ -35,7 +36,7 @@ class RelayStation {
     /**
      * App Initialization.
      */
-    _init () {
+    async _init () {
         console.log('Starting RelayStation initialization...')
 
         if (process.env.NODE_ENV === 'production') {
@@ -73,9 +74,37 @@ class RelayStation {
         /* Initilize private key. */
         this.privateKey = CONFIG['accounts']['relay'].privateKey
 
-        /* Initilize address. */
-        // FIXME Pull this value dynamically from `aname.zerocache`
-        this.contractAddress = '0x565d0859a620aE99052Cc44dDe74b199F13A3433' // ZeroCache
+        /* Set data id. */
+        // NOTE: keccak256(`aname.zerocache`)
+        const dataId = '0x75341c765d2ccac618fa566b11618076575bdb7620692a552e9ac9ff23a5540c'
+
+        /* Initialize endpoint. */
+        let endpoint = null
+
+        /* Select (http) provider. */
+        if (process.env.NODE_ENV === 'production') {
+            endpoint = `https://db.0net.io/v1/getAddress/${dataId}`
+        } else {
+            endpoint = `https://db-ropsten.0net.io/v1/getAddress/${dataId}`
+        }
+
+        /* Make API request. */
+        const response = await request
+            .get(endpoint)
+            .set('accept', 'json')
+            .catch(_error => {
+                console.error('REQUEST ERROR:', _error)
+            })
+
+        // console.log('ZeroCache ANAME RESPONSE:', response)
+
+        /* Validate response. */
+        if (response && response.body)  {
+            console.log('ZeroCache ANAME:', response.body)
+
+            /* Set contract address. */
+            this.contractAddress = response.body
+        }
 
         /* Initialize gas price. */
         // const gasPrice = '20000000000' // default gas price in wei, 20 gwei in this case
