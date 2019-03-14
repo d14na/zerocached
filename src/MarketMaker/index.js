@@ -142,14 +142,13 @@ class MarketMaker {
             return console.error('ERROR ZeroCache ANAME:', response)
         }
 
-        // const anameZeroCache = '0x565d0859a620aE99052Cc44dDe74b199F13A3433'
-        const tokenRequest = '0xc778417E063141139Fce010982780140Aa0cD5Ab'
-        const amountRequest = '888000000000000000'
-        const tokenOffer = '0x079F89645eD85b85a475BF2bdc82c82f327f2932'
-        const amountOffer = '13370000000'
-        const ttl = blockNumber + 10000
+        const tokenRequest = '0xc778417E063141139Fce010982780140Aa0cD5Ab' // Wrapped ETH
+        const amountRequest = '10000000000000000' // 0.01 WETH
+        const tokenOffer = '0x079F89645eD85b85a475BF2bdc82c82f327f2932' // ZeroGold
+        const amountOffer = '133700000' // 1.337 0GOLD
+        const ttl = blockNumber + 10000 // approx 1.75 days
         const timestamp = moment().unix() // seconds
-        const canPartialFill = false
+        const canPartialFill = true // allow variable fills
 
         /**
          * Initialize all transaction parameters for signing.

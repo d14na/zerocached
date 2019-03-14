@@ -7,11 +7,11 @@ pragma solidity ^0.4.25;
  *
  * ZeroDelta - The Official ZeroCache (DEX) Decentralized Exchange
  *
- *             This is the first non-custodial blockchain exchange. ALL tokens
- *             are held securely in ZeroCache; and require authorized signatures
+ *             This is the first non-custodial, blockchain exchange. ALL tokens
+ *             are held securely in ZeroCache; plus require authorized signatures
  *             of both the MAKER and TAKER for ANY and ALL token transfers.
  *
- * Version 19.3.12
+ * Version 19.3.14
  *
  * https://d14na.org
  * support@d14na.org
@@ -202,7 +202,7 @@ contract ZeroDelta is Owned {
         uint expires;
         uint nonce;
         bool canPartialFill;
-        uint amountFilled;
+        uint amountFilled; // of `tokenRequest`
     }
 
     /**
@@ -210,9 +210,32 @@ contract ZeroDelta is Owned {
      */
     mapping (bytes32 => Order) private _orders;
 
+    /**
+     * Trade Structure
+     *
+     * NOTE: Transfer Signatures are required to move ANY funds within
+     * the ZeroCache that come from a 3rd-party.
+     */
+    struct Trade {
+        bytes32 orderId;
+        address taker;
+        bytes takerSig;
+        uint paymentAmount;
+        address staekholder;
+        uint staek;
+    }
+
+    /**
+     * Trades
+     */
+    mapping (bytes32 => Trade) private _trades;
+
     /* Maximum order expiration time. */
     // NOTE: 10,000 blocks = ~1 3/4 days
     uint private _MAX_ORDER_EXPIRATION = 10000;
+
+    /* Set namespace. */
+    string private _namespace = 'zerodelta';
 
     event OrderCancel(
         bytes32 indexed marketId,
@@ -226,9 +249,7 @@ contract ZeroDelta is Owned {
 
     event TradeComplete(
         bytes32 indexed marketId,
-        bytes32 orderId,
-        address taker,
-        uint amountTaken
+        bytes32 tradeId
     );
 
     /***************************************************************************
@@ -236,8 +257,16 @@ contract ZeroDelta is Owned {
      * Constructor
      */
     constructor() public {
-        /* Set predecessor address. */
-        _predecessor = 0x0;
+        /* Initialize Zer0netDb (eternal) storage database contract. */
+        // NOTE We hard-code the address here, since it should never change.
+        // _zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
+        _zer0netDb = Zer0netDbInterface(0x4C2f68bCdEEB88764b1031eC330aD4DF8d6F64D6); // ROPSTEN
+
+        /* Initialize (aname) hash. */
+        bytes32 hash = keccak256(abi.encodePacked('aname.', _namespace));
+
+        /* Retrieve value from Zer0net Db. */
+        _predecessor = _zer0netDb.getAddress(hash);
 
         /* Verify predecessor address. */
         if (_predecessor != 0x0) {
@@ -247,11 +276,6 @@ contract ZeroDelta is Owned {
             /* Set (current) revision number. */
             _revision = lastRevision + 1;
         }
-
-        /* Initialize Zer0netDb (eternal) storage database contract. */
-        // NOTE We hard-code the address here, since it should never change.
-        // _zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
-        _zer0netDb = Zer0netDbInterface(0x4C2f68bCdEEB88764b1031eC330aD4DF8d6F64D6); // ROPSTEN
     }
 
     /**
@@ -260,7 +284,7 @@ contract ZeroDelta is Owned {
     modifier onlyAuthBy0Admin() {
         /* Verify write access is only permitted to authorized accounts. */
         require(_zer0netDb.getBool(keccak256(
-            abi.encodePacked(msg.sender, '.has.auth.for.zerodelta'))) == true);
+            abi.encodePacked(msg.sender, '.has.auth.for.', _namespace))) == true);
 
         _;      // function code is inserted here
     }
@@ -360,7 +384,10 @@ contract ZeroDelta is Owned {
 
         /* Broadcast event. */
         emit OrderRequest(
-            _calcMarketId(_tokenRequest, _tokenOffer),
+            _calcMarketId(
+                _tokenRequest,
+                _tokenOffer
+            ),
             orderId
         );
 
@@ -391,7 +418,8 @@ contract ZeroDelta is Owned {
         }
 
         /* Retrieve maker balance from ZeroCache. */
-        uint makerBalance = _zeroCache().balanceOf(_tokenOffer, _maker);
+        uint makerBalance = _zeroCache()
+            .balanceOf(_tokenOffer, _maker);
 
         /* Validate MAKER token balance. */
         if (_amountOffer > makerBalance) {
@@ -423,43 +451,23 @@ contract ZeroDelta is Owned {
     function cancelOrder(
         bytes32 _orderId
     ) external {
-        /* Retrieve order details. */
-        (
-            address maker,
-            bytes memory makerSig,
-            address tokenRequest,
-            uint amountRequest,
-            address tokenOffer,
-            uint amountOffer,
-            uint expires,
-            uint nonce,
-            bool canPartialFill,
-            uint amountFilled
-        ) = getOrder(_orderId);
-
-        /* Handler for `Unused local variable` warning. */
-        // NOTE: Srsly, how pretty|ugly is this hack??
-        require(
-            (makerSig[0] == 0x0 || makerSig[0] != 0x0) &&
-            (tokenRequest == 0x0 || tokenRequest != 0x0) &&
-            amountOffer >= 0 &&
-            expires >= 0 &&
-            nonce >= 0 &&
-            (canPartialFill == true || canPartialFill != true) &&
-            amountFilled >= 0
-        );
-
         /* Validate MAKER authorized request. */
-        if (msg.sender != maker) {
+        if (msg.sender != _orders[_orderId].maker) {
             revert('Oops! Your request is NOT authorized.');
         }
 
         /* Fill order. */
-        _setAmountFilled(_orderId, amountRequest);
+        _setAmountFilled(
+            _orderId,
+            _orders[_orderId].amountRequest
+        );
 
         /* Broadcast event. */
         emit OrderCancel(
-            _calcMarketId(tokenRequest, tokenOffer),
+            _calcMarketId(
+                _orders[_orderId].tokenRequest,
+                _orders[_orderId].tokenOffer
+            ),
             _orderId
         );
     }
@@ -475,36 +483,43 @@ contract ZeroDelta is Owned {
      *       will be successful in subsequent blocks (as available
      *       volumes can change due to external token activites).
      */
-    // function tradeSimulation(
-    //     address _maker,
-    //     address _tokenRequest,
-    //     uint _amountRequest,
-    //     address _tokenOffer,
-    //     uint _amountOffer,
-    //     uint _expires,
-    //     uint _nonce,
-    //     uint _amount,
-    //     bytes _signature
-    // ) external view returns (bool success) {
-    //     /* Initialize success. */
-    //     success = true;
+    function tradeSimulation(
+        bytes32 _orderId,
+        bytes _takerSig,
+        uint _paymentAmount,
+        address _staekholder,
+        uint _staek
+    ) external view returns (bool success) {
+        /* Initialize success. */
+        success = true;
 
-    //     /* Retrieve available (on-chain) volume. */
-    //     uint availableVolume = getAvailableVolume(
-    //         _maker,
-    //         _tokenGet,
-    //         _amountRequest,
-    //         _tokenGive,
-    //         _amountGive,
-    //         _expires,
-    //         _nonce
-    //     );
+        // TODO Validate signature
+        if (_takerSig[0] == 0x0 && _takerSig[0] != 0x0) {
+            /* Set flag. */
+            success = false;
+        }
 
-    //     /* Validate available (on-chain) volume. */
-    //     if (_amount > availableVolume) {
-    //         return false;
-    //     }
-    // }
+        // TODO Validate staekholder
+        if (_staekholder == 0x0 && _staekholder != 0x0) {
+            /* Set flag. */
+            success = false;
+        }
+
+        // TODO Validate staek
+        if (_staek == 0 && _staek != 0) {
+            /* Set flag. */
+            success = false;
+        }
+
+        /* Retrieve available volume. */
+        uint availableVolume = getAvailableVolume(_orderId);
+
+        /* Validate available (on-chain) volume. */
+        if (_paymentAmount > availableVolume) {
+            /* Set flag. */
+            success = false;
+        }
+    }
 
     /**
      * (On-chain <> On-chain) Trade
@@ -525,69 +540,79 @@ contract ZeroDelta is Owned {
      *       (or 3rd-party) service(s); guaranteeing the MAXIMUM safety
      *       and security to both the maker and taker of the transaction.
      */
-    // function trade(
-    //     address _maker,
-    //     address _tokenRequest,
-    //     uint _amountRequest,
-    //     address _tokenOffer,
-    //     uint _amountOffer,
-    //     uint _expires,
-    //     uint _nonce,
-    //     uint _amount
-    // ) external returns (bool success) {
-    //     /* Initialize taker. */
-    //     address taker = msg.sender;
+    function trade(
+        bytes32 _orderId,
+        bytes _takerSig,
+        uint _paymentAmount,
+        address _staekholder,
+        uint _staek
+    ) external returns (bool success) {
+        /* Validate order. */
+        if (_orders[_orderId].maker == 0x0) {
+            revert('Oops! That order DOES NOT exist.');
+        }
 
-    //     /* Retrieve available volume. */
-    //     uint availableVolume = getAvailableVolume(
-    //         _maker,
-    //         _tokenGet,
-    //         _amountRequest,
-    //         _tokenGive,
-    //         _amountGive,
-    //         _expires,
-    //         _nonce
-    //     );
+        /* Initialize taker. */
+        address taker = msg.sender;
 
-    //     /* Validate available (trade) volume. */
-    //     if (_amount > availableVolume) {
-    //         revert('Oops! Amount requested EXCEEDS available volume.');
-    //     }
+        /* Create new trade request. */
+        bytes32 tradeId = _createTradeRequest(
+            _orderId,
+            taker,
+            _paymentAmount,
+            _staekholder,
+            _staek
+        );
 
-    //     /* Calculate order id. */
-    //     bytes32 orderId = keccak256(abi.encodePacked(
-    //         address(this),
-    //         _tokenGet,
-    //         _amountRequest,
-    //         _tokenGive,
-    //         _amountGive,
-    //         _expires,
-    //         _nonce
-    //     ));
+        /* Build new (trade) request. */
+        Trade memory request = Trade(
+            _orderId,
+            taker,
+            _takerSig,
+            _paymentAmount,
+            _staekholder,
+            _staek
+        );
 
-    //     /* Validate order. */
-    //     if (!_orders[orderId]) {
-    //         revert('Oops! That order DOES NOT exist.');
-    //     }
+        /* Save trade to trades. */
+        _trades[tradeId] = request;
 
-    //     /* Add volume to reduce remaining order availability. */
-    //     _orderFills[_maker][orderId] =
-    //         _orderFills[_maker][orderId].add(_amount);
+        /* Retrieve available volume. */
+        uint availableVolume = getAvailableVolume(_orderId);
 
-    //     /* Request atomic trade. */
-    //     _trade(
-    //         _maker,
-    //         taker,
-    //         _tokenGet,
-    //         _amountRequest,
-    //         _tokenGive,
-    //         _amountGive,
-    //         _amount
-    //     );
+        /* Validate available (trade) volume. */
+        if (_paymentAmount > availableVolume) {
+            revert('Oops! Amount to be paid EXCEEDS available volume.');
+        }
 
-    //     /* Return success. */
-    //     return true;
-    // }
+        /* Request atomic trade. */
+        return _trade(tradeId);
+    }
+
+    /**
+     * Create Trade Request
+     *
+     * Will validate all parameters and return a new trade id.
+     */
+    function _createTradeRequest(
+        bytes32 _orderId,
+        address _taker,
+        uint _paymentAmount,
+        address _staekholder,
+        uint _staek
+    ) private view returns (bytes32 tradeId) {
+        // TODO Do some validation before creating new id.
+
+        /* Calculate trade id. */
+        tradeId = keccak256(abi.encodePacked(
+            address(this),
+            _orderId,
+            _taker,
+            _paymentAmount,
+            _staekholder,
+            _staek
+        ));
+    }
 
     /**
      * (On-chain <> Off-chain) RELAYED | MARKET Trade
@@ -606,21 +631,13 @@ contract ZeroDelta is Owned {
     //     uint _amountOffer,
     //     uint _expires,
     //     uint _nonce,
-    //     uint _amount
+    //     uint _paymentAmount
     // ) external returns (bool success) {
     //     /* Retrieve available volume. */
-    //     uint availableVolume = getAvailableVolume(
-    //         _maker,
-    //         _tokenGet,
-    //         _amountRequest,
-    //         _tokenGive,
-    //         _amountGive,
-    //         _expires,
-    //         _nonce
-    //     );
+    //     uint availableVolume = getAvailableVolume(_orderId);
 
     //     /* Validate available (trade) volume. */
-    //     if (_amount > availableVolume) {
+    //     if (_paymentAmount > availableVolume) {
     //         revert('Oops! Amount requested EXCEEDS available volume.');
     //     }
 
@@ -702,7 +719,7 @@ contract ZeroDelta is Owned {
     //     uint _amountRequest,
     //     address _tokenOffer,
     //     uint _amountOffer,
-    //     uint _amountTaken,
+    //     uint _paymentAmount,
     //     uint _expires,
     //     uint _nonce
     // ) external returns (bool success) {
@@ -736,7 +753,7 @@ contract ZeroDelta is Owned {
     //         orderId,
     //         _staekholder,
     //         _staek,
-    //         _amountTaken
+    //         _paymentAmount
     //     ));
 
     //     /* Validate maker. */
@@ -764,7 +781,7 @@ contract ZeroDelta is Owned {
     //         _amountRequest,
     //         _tokenGive,
     //         _amountGive,
-    //         _amountTaken,
+    //         _paymentAmount,
     //         _expires,
     //         _nonce
     //     );
@@ -794,7 +811,7 @@ contract ZeroDelta is Owned {
     //     uint _amountRequest,
     //     address _tokenOffer,
     //     uint _amountOffer,
-    //     uint _amountTaken,
+    //     uint _paymentAmount,
     //     uint _expires,
     //     uint _nonce
     // ) external returns (bool success) {
@@ -815,7 +832,7 @@ contract ZeroDelta is Owned {
     //         _amountRequest,
     //         _tokenGive,
     //         _amountGive,
-    //         _amountTaken,
+    //         _paymentAmount,
     //         _expires,
     //         _nonce
     //     );
@@ -832,7 +849,7 @@ contract ZeroDelta is Owned {
      * 1. We TEMPORARILY transfer a pre-authorized `amountGive` quantity
      *    of the MAKER's tokens here from their ZeroCache.
      *
-     * 2. We calculate `amountTaken` of the TAKER's trade request,
+     * 2. We calculate `_paymentAmount` of the TAKER's trade request,
      *    immediately return the unused balance (if any) back to the MAKER.
      *
      * 3. We then transfer the reserved balance to the TAKER,
@@ -843,97 +860,62 @@ contract ZeroDelta is Owned {
      *       ZeroCache, to guarantee the ability to fill the order's entire volume.
      */
     function _trade(
-        bytes32 _orderId,
-        address _taker,
-        bytes _takerSig,
-        uint _amountTaken,
-        address _staekholder,
-        uint _staek
+        bytes32 _tradeId
     ) private returns (bool success) {
-        /* Retrieve order details. */
-        (
-            address maker,
-            bytes memory makerSig,
-            address tokenRequest,
-            uint amountRequest,
-            address tokenOffer,
-            uint amountOffer,
-            uint expires,
-            uint nonce,
-            bool canPartialFill,
-            uint amountFilled
-        ) = getOrder(_orderId);
+        /* Set order id. */
+        bytes32 orderId = _trades[_tradeId].orderId;
 
         /* Validate permission to partial fill. */
-        if (!canPartialFill && amountOffer != _amountTaken) {
-            revert('Oops! You CANNOT partial fill this order.');
-        }
+        _canPartialFill(
+            _orders[orderId].canPartialFill,
+            _orders[orderId].amountOffer,
+            _trades[_tradeId].paymentAmount
+        );
+
+        /* Calculate the amount recieved by TAKER. */
+        uint amountTaken = _orders[orderId].amountOffer
+            .mul(_trades[_tradeId].paymentAmount)
+            .div(_orders[orderId].amountRequest);
 
         /* Calculate new fill amount. */
-        uint newFillAmount = amountFilled.add(_amountTaken);
+        uint newFillAmount = _orders[orderId].amountFilled
+            .add(_trades[_tradeId].paymentAmount);
 
         /* Set amount filled. */
-        _setAmountFilled(_orderId, newFillAmount);
-
-        /* Calculate the (payment) amount for MAKER. */
-        uint paymentAmount = amountOffer.mul(_amountTaken).div(amountRequest);
+        _setAmountFilled(orderId, newFillAmount);
 
         /* Transer tokens from MAKER to ZeroDelta. */
         // NOTE: This is a PRE-AUTHORIZED transfer request using `makerSig`.
-        _zeroCache().transfer(
-            tokenOffer,
-            maker,
-            address(this),
-            amountOffer,
-            address(0x0),
-            uint(0),
-            expires,
-            nonce,
-            makerSig
-        );
+        _transferFromMaker(orderId);
 
         /* Transfer unneeded balance back to MAKER. */
-        if (amountOffer > _amountTaken) {
-            _zeroCache().transfer(
-                maker,
-                tokenOffer,
-                amountOffer.sub(_amountTaken)
-            );
-        }
+        _transferChangeToMaker(
+            orderId,
+            amountTaken
+        );
 
         /* Transer (payment) tokens from TAKER to MAKER. */
-        // WARNING Do this BEFORE TAKER transfer to safeguard against
-        // a re-entry attack.
-        // NOTE: This is a PRE-AUTHORIZED transfer request using `takerSig`,
-        //       while also allowing for a staekholder to expedite the transfer.
-        _zeroCache().transfer(
-            tokenRequest,
-            _taker,
-            maker,
-            paymentAmount,
-            _staekholder,
-            _staek,
-            expires,
-            nonce,
-            _takerSig
+        _transferFromTakerToMaker(
+            _tradeId,
+            _trades[_tradeId].paymentAmount
         );
 
         /* Transfer tokens from ZeroDelta to TAKER. */
         // WARNING This MUST be the LAST transfer to safeguard against
         // a re-entry attack.
         // NOTE: This reduces ZeroDelta's token holdings back to ZERO.
-        _zeroCache().transfer(
-            _taker,
-            tokenOffer,
-            _amountTaken
+        _transferToTaker(
+            _tradeId,
+            amountTaken
         );
 
         /* Broadcast event. */
         emit TradeComplete(
-            _calcMarketId(tokenRequest, tokenOffer),
-            _orderId,
-            _taker,
-            _amountTaken
+            _calcMarketId(
+                _orders[orderId].tokenRequest,
+                _orders[orderId].tokenOffer
+            ),
+            _tradeId
         );
 
         /* Return success. */
@@ -946,6 +928,122 @@ contract ZeroDelta is Owned {
      * GETTERS
      *
      */
+
+    /**
+     * Get Order
+     *
+     * Retrieves the FULL details of an order.
+     */
+    function getOrder(
+        bytes32 _orderId
+    ) public view returns (
+        address maker,
+        bytes makerSig,
+        address tokenRequest,
+        uint amountRequest,
+        address tokenOffer,
+        uint amountOffer,
+        uint expires,
+        uint nonce,
+        bool canPartialFill,
+        uint amountFilled
+    ) {
+        /* Retrieve maker. */
+        maker = _orders[_orderId].maker;
+
+        /* Retrieve maker signature. */
+        makerSig = _orders[_orderId].makerSig;
+
+        /* Retrieve token requested. */
+        tokenRequest = _orders[_orderId].tokenRequest;
+
+        /* Retrieve amount requested. */
+        amountRequest = _orders[_orderId].amountRequest;
+
+        /* Retrieve token offered. */
+        tokenOffer = _orders[_orderId].tokenOffer;
+
+        /* Retrieve amount offered. */
+        amountOffer = _orders[_orderId].amountOffer;
+
+        /* Retrieve expiration. */
+        expires = _orders[_orderId].expires;
+
+        /* Retrieve nonce. */
+        nonce = _orders[_orderId].nonce;
+
+        /* Retrieve partial fill flag. */
+        canPartialFill = _orders[_orderId].canPartialFill;
+
+        /* Retrieve amount (has been) filled. */
+        // NOTE: This is of `tokenRequest`.
+        amountFilled = _orders[_orderId].amountFilled;
+    }
+
+    /**
+     * Get Trade
+     *
+     * Retrieves the FULL details of a successful trade.
+     */
+    function getTrade(
+        bytes32 _tradeId
+    ) public view returns (
+        bytes32 orderId,
+        address taker,
+        uint paymentAmount,
+        address staekholder,
+        uint staek
+    ) {
+        /* Retrieve order id. */
+        orderId = _trades[_tradeId].orderId;
+
+        /* Retrieve taker. */
+        taker = _trades[_tradeId].taker;
+
+        /* Retrieve payment amount. */
+        paymentAmount = _trades[_tradeId].paymentAmount;
+
+        /* Retrieve staekholder. */
+        staekholder = _trades[_tradeId].staekholder;
+
+        /* Retrieve staek. */
+        staek = _trades[_tradeId].staek;
+    }
+
+    /**
+     * Get Available (Order) Volume
+     */
+    function getAvailableVolume(
+        bytes32 _orderId
+    ) public view returns (uint availableVolume) {
+        /* Validate expiration. */
+        if (block.number > _orders[_orderId].expires) {
+            availableVolume = 0;
+        } else {
+            /* Retrieve maker balance from ZeroCache. */
+            uint makerBalance = _zeroCache()
+                .balanceOf(
+                    _orders[_orderId].tokenOffer,
+                    _orders[_orderId].maker
+                );
+
+            /* Calculate order (trade) balance. */
+            uint orderBalance = _orders[_orderId].amountRequest
+                .sub(_orders[_orderId].amountFilled);
+
+            /* Calculate maker (trade) balance. */
+            uint tradeBalance = makerBalance
+                .mul(_orders[_orderId].amountRequest)
+                .div(_orders[_orderId].amountOffer);
+
+            /* Validate available volume. */
+            if (orderBalance < tradeBalance) {
+                availableVolume = orderBalance;
+            } else {
+                availableVolume = tradeBalance;
+            }
+        }
+    }
 
     /**
      * Get Revision (Number)
@@ -968,109 +1066,6 @@ contract ZeroDelta is Owned {
         return _successor;
     }
 
-    /**
-     * Get Order
-     *
-     * Retrieves the FULL details of an order.
-     */
-    function getOrder(
-        bytes32 _orderId
-    ) public view returns (
-        address maker,
-        bytes makerSig,
-        address tokenRequest,
-        uint amountRequest,
-        address tokenOffer,
-        uint amountOffer,
-        uint expires,
-        uint nonce,
-        bool canPartialFill,
-        uint amountFilled
-    ) {
-        /* Retrieve order. */
-        Order memory order = _orders[_orderId];
-
-        /* Retrieve maker. */
-        maker = order.maker;
-
-        /* Retrieve maker signature. */
-        makerSig = order.makerSig;
-
-        /* Retrieve token requested. */
-        tokenRequest = order.tokenRequest;
-
-        /* Retrieve amount requested. */
-        amountRequest = order.amountRequest;
-
-        /* Retrieve token offered. */
-        tokenOffer = order.tokenOffer;
-
-        /* Retrieve amount offered. */
-        amountOffer = order.amountOffer;
-
-        /* Retrieve expiration. */
-        expires = order.expires;
-
-        /* Retrieve nonce. */
-        nonce = order.nonce;
-
-        /* Retrieve partial fill flag. */
-        canPartialFill = order.canPartialFill;
-
-        /* Retrieve amount (has been) filled. */
-        amountFilled = order.amountFilled;
-    }
-
-    /**
-     * Get Available (Order) Volume
-     */
-    function getAvailableVolume(
-        bytes32 _orderId
-    ) public view returns (uint availableVolume) {
-        /* Retrieve order. */
-        (
-            address maker,
-            bytes memory makerSig,
-            address tokenRequest,
-            uint amountRequest,
-            address tokenOffer,
-            uint amountOffer,
-            uint expires,
-            uint nonce,
-            bool canPartialFill,
-            uint amountFilled
-        ) = getOrder(_orderId);
-
-        /* Handler for `Unused local variable` warning. */
-        // NOTE: Srsly, how pretty|ugly is this hack??
-        require(
-            (makerSig[0] == 0x0 || makerSig[0] != 0x0) &&
-            (tokenRequest == 0x0 || tokenRequest != 0x0) &&
-            nonce >= 0 &&
-            (canPartialFill == true || canPartialFill != true)
-        );
-
-        /* Validate expiration. */
-        if (block.number > expires) {
-            availableVolume = 0;
-        } else {
-            /* Retrieve maker balance from ZeroCache. */
-            uint makerBalance = _zeroCache().balanceOf(tokenOffer, maker);
-
-            /* Calculate order (trade) balance. */
-            uint orderBalance = amountRequest.sub(amountFilled);
-
-            /* Calculate maker (trade) balance. */
-            uint tradeBalance = makerBalance.mul(amountRequest).div(amountOffer);
-
-            /* Validate available volume. */
-            if (orderBalance < tradeBalance) {
-                availableVolume = orderBalance;
-            } else {
-                availableVolume = tradeBalance;
-            }
-        }
-    }
 
     /***************************************************************************
      *
@@ -1154,7 +1149,7 @@ contract ZeroDelta is Owned {
     function _ecRecovery() private view returns (
         ECRecovery ecrecovery
     ) {
-        /* Initailze hash. */
+        /* Initialize hash. */
         bytes32 hash = keccak256('aname.ecrecovery');
 
         /* Retrieve value from Zer0net Db. */
@@ -1173,7 +1168,7 @@ contract ZeroDelta is Owned {
     function _zeroCache() private view returns (
         ZeroCacheInterface zeroCache
     ) {
-        /* Initailze hash. */
+        /* Initialize hash. */
         bytes32 hash = keccak256('aname.zerocache');
 
         /* Retrieve value from Zer0net Db. */
@@ -1192,7 +1187,7 @@ contract ZeroDelta is Owned {
     function _dai() private view returns (
         ERC20Interface dai
     ) {
-        /* Initailze hash. */
+        /* Initialize hash. */
         // NOTE: ERC tokens are case-sensitive.
         bytes32 hash = keccak256('aname.DAI');
 
@@ -1212,7 +1207,7 @@ contract ZeroDelta is Owned {
     function _zeroGold() private view returns (
         ERC20Interface zeroGold
     ) {
-        /* Initailze hash. */
+        /* Initialize hash. */
         // NOTE: ERC tokens are case-sensitive.
         bytes32 hash = keccak256('aname.0GOLD');
 
@@ -1338,6 +1333,22 @@ contract ZeroDelta is Owned {
     }
 
     /**
+     * Can Partial Fill?
+     */
+    function _canPartialFill(
+        bool _allowed,
+        uint _amountOffer,
+        uint _amountTaken
+    ) private pure returns (bool success) {
+        if (!_allowed && _amountOffer != _amountTaken) {
+            revert('Oops! You CANNOT partial fill this order.');
+        }
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
      * Request Hash Authorized Signature
      *
      * Validates ALL signature requests by:
@@ -1367,6 +1378,114 @@ contract ZeroDelta is Owned {
         if (_from != authorizedAccount) {
             return false;
         }
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Transfer Change (Back) to Maker
+     *
+     * NOTE: We manage change because we require the MAKER to
+     *       keep at least 2x `amountOffer` tokens available for
+     *       `cacanPartialFill` requests.
+     */
+    function _transferChangeToMaker(
+        bytes32 _orderId,
+        uint _amountTaken
+    ) private returns (bool success) {
+        /* Validate change. */
+        if (_orders[_orderId].amountOffer > _amountTaken) {
+            _zeroCache().transfer(
+                _orders[_orderId].maker,
+                _orders[_orderId].tokenOffer,
+                _orders[_orderId].amountOffer.sub(_amountTaken)
+            );
+        }
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Transfer (Tokens) from Maker.
+     *
+     * NOTE: This executes the SIGNED transfer request,
+     *       by the MAKER that allows ZeroDelta to perfom an
+     *       atomic token swap.
+     *
+     *       *** THERE IS NO STAEKHOLDER SUPPORT FOR MAKERS ***
+     */
+    function _transferFromMaker(
+        bytes32 _orderId
+    ) private returns (bool success) {
+        /* Transer tokens from MAKER to ZeroDelta. */
+        // NOTE: This is a PRE-AUTHORIZED transfer request using `makerSig`.
+        _zeroCache().transfer(
+            _orders[_orderId].tokenOffer,
+            _orders[_orderId].maker,
+            address(this),
+            _orders[_orderId].amountOffer,
+            address(0x0),
+            uint(0),
+            _orders[_orderId].expires,
+            _orders[_orderId].nonce,
+            _orders[_orderId].makerSig
+        );
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Tranfer (Tokens) from Taker to Maker
+     *
+     * NOTE: This executes the SIGNED transfer request,
+     *       by the TAKER for the payment amount to MAKER.
+     */
+    function _transferFromTakerToMaker(
+        bytes32 _tradeId,
+        uint _paymentAmount
+    ) private returns (bool success) {
+        /* Set order id. */
+        bytes32 orderId = _trades[_tradeId].orderId;
+
+        // WARNING Do this BEFORE TAKER transfer to safeguard against
+        // a re-entry attack.
+        // NOTE: This is a PRE-AUTHORIZED transfer request using `takerSig`,
+        //       while also allowing for a staekholder to expedite the transfer.
+        _zeroCache().transfer(
+            _orders[orderId].tokenRequest,
+            _trades[_tradeId].taker,
+            _orders[orderId].maker,
+            _paymentAmount,
+            _trades[_tradeId].staekholder,
+            _trades[_tradeId].staek,
+            _orders[orderId].expires,
+            _orders[orderId].nonce,
+            _trades[_tradeId].takerSig
+        );
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Transfer (Tokens) to Taker
+     */
+    function _transferToTaker(
+        bytes32 _tradeId,
+        uint _amountTaken
+    ) private returns (bool success) {
+        /* Set order id. */
+        bytes32 orderId = _trades[_tradeId].orderId;
+
+        /* Transfer tokens to taker. */
+        _zeroCache().transfer(
+            _trades[_tradeId].taker,
+            _orders[orderId].tokenOffer,
+            _amountTaken
+        );
 
         /* Return success. */
         return true;

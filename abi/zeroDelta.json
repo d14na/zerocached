@@ -19,6 +19,41 @@
 		"type": "function"
 	},
 	{
+		"constant": true,
+		"inputs": [
+			{
+				"name": "_orderId",
+				"type": "bytes32"
+			},
+			{
+				"name": "_takerSig",
+				"type": "bytes"
+			},
+			{
+				"name": "_paymentAmount",
+				"type": "uint256"
+			},
+			{
+				"name": "_staekholder",
+				"type": "address"
+			},
+			{
+				"name": "_staek",
+				"type": "uint256"
+			}
+		],
+		"name": "tradeSimulation",
+		"outputs": [
+			{
+				"name": "success",
+				"type": "bool"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
 		"constant": false,
 		"inputs": [
 			{
@@ -147,6 +182,41 @@
 		"constant": true,
 		"inputs": [
 			{
+				"name": "_tradeId",
+				"type": "bytes32"
+			}
+		],
+		"name": "getTrade",
+		"outputs": [
+			{
+				"name": "orderId",
+				"type": "bytes32"
+			},
+			{
+				"name": "taker",
+				"type": "address"
+			},
+			{
+				"name": "paymentAmount",
+				"type": "uint256"
+			},
+			{
+				"name": "staekholder",
+				"type": "address"
+			},
+			{
+				"name": "staek",
+				"type": "uint256"
+			}
+		],
+		"payable": false,
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": true,
+		"inputs": [
+			{
 				"name": "_orderId",
 				"type": "bytes32"
 			}
@@ -225,6 +295,41 @@
 		],
 		"payable": false,
 		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"constant": false,
+		"inputs": [
+			{
+				"name": "_orderId",
+				"type": "bytes32"
+			},
+			{
+				"name": "_takerSig",
+				"type": "bytes"
+			},
+			{
+				"name": "_paymentAmount",
+				"type": "uint256"
+			},
+			{
+				"name": "_staekholder",
+				"type": "address"
+			},
+			{
+				"name": "_staek",
+				"type": "uint256"
+			}
+		],
+		"name": "trade",
+		"outputs": [
+			{
+				"name": "success",
+				"type": "bool"
+			}
+		],
+		"payable": false,
+		"stateMutability": "nonpayable",
 		"type": "function"
 	},
 	{
@@ -343,18 +448,8 @@
 			},
 			{
 				"indexed": false,
-				"name": "orderId",
+				"name": "tradeId",
 				"type": "bytes32"
-			},
-			{
-				"indexed": false,
-				"name": "taker",
-				"type": "address"
-			},
-			{
-				"indexed": false,
-				"name": "amountTaken",
-				"type": "uint256"
 			}
 		],
 		"name": "TradeComplete",
