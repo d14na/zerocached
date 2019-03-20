@@ -153,6 +153,17 @@ contract Zer0netDbInterface {
 
 /*******************************************************************************
  *
+ * ZeroCache Interface
+ */
+contract ZeroCacheInterface {
+    function balanceOf(address _token, address _owner) public constant returns (uint balance);
+    function transfer(address _to, address _token, uint _tokens) external returns (bool success);
+    function transfer(address _token, address _from, address _to, uint _tokens, address _staekholder, uint _staek, uint _expires, uint _nonce, bytes _signature) external returns (bool success);
+}
+
+
+/*******************************************************************************
+ *
  * @notice Staek(house) Factory
  *
  * @dev Allows token managers with ZeroCache compatability for their tokens to
@@ -191,22 +202,20 @@ contract StaekFactory is Owned {
      * owner - The token manager.
      * ownerLockTime - Places a limit on the owner's "first"
      *                 withdrawal.
-     * providerDebitLimit - limits debit amount (per debit cycle)
-     * providerDebitRate - limits debit percentage (per debit cycle)
-     * providerLockTime - debit (transfer) wait cycle
+     * providerDebtLimit - limits debt amount (per debt cycle)
+     * providerDebtRate - limits debt percentage (per debt cycle)
+     * providerLockTime - debt (transfer) wait cycle
      */
     struct Staekhouse {
         address token;
         address owner;
         uint ownerLockTime;
-        uint providerDebitLimit;
-        uint providerDebitRate;
+        uint providerDebtLimit;
+        uint providerDebtRate;
         uint providerLockTime;
         uint lockInterval;
+        uint balance;
     }
-
-    /* Initialize balances. */
-    mapping(bytes32 => mapping(address => uint)) private _balances;
 
     /* Initialize staekhouses. */
     mapping(bytes32 => Staekhouse) private _staekhouses;
@@ -223,13 +232,9 @@ contract StaekFactory is Owned {
     // NOTE: 20 blocks is approximately 5 minutes.
     uint _MIN_LOCK_INTERVAL = 20;
 
-    /* Initialize default blocks per generation. */
-    // FIXME this is temporary FOR DEV
-    uint _TEMP_BLOCKS_PER_GENERATION = 144;
-
-    event Added(
-        bytes32 staekhouseId,
-        address token
+    event CollectDebt(
+        bytes32 indexed staekhouseId,
+        uint tokens
     );
 
     event Migrate(
@@ -238,18 +243,26 @@ contract StaekFactory is Owned {
 
     event Renewal(
         bytes32 indexed staekhouseId,
-        address owner
+        address user // can be either owner OR provider address
+    );
+
+    event Staeking(
+        bytes32 staekhouseId,
+        address token
     );
 
     event StaekUp(
         bytes32 indexed staekhouseId,
-        address owner,
         uint tokens
     );
 
     event StaekDown(
         bytes32 indexed staekhouseId,
-        address owner,
+        uint tokens
+    );
+
+    event Withdrawal(
+        bytes32 indexed staekhouseId,
         uint tokens
     );
 
@@ -308,13 +321,19 @@ contract StaekFactory is Owned {
     /**
      * @dev Only allow access to "registered" staekhouse authorized user/contract.
      */
-    modifier onlyStaekhouseAuth(
-        bytes32 _staekhouseId,
-        address _authorized
+    modifier onlyTokenManager(
+        bytes32 _staekhouseId
     ) {
-        /* Validate authorized address. */
+        /* Retrieve staekhouse token. */
+        address token = _staekhouses[_staekhouseId].token;
+
+        /* Validate authorized token manager. */
         require(_zer0netDb.getBool(keccak256(abi.encodePacked(
-            _authorized, '.has.auth.for.', _staekhouseId))) == true);
+            _namespace, '.',
+            msg.sender,
+            '.has.auth.for.',
+            token
+        ))) == true);
 
         _;      // function code is inserted here
     }
@@ -337,21 +356,21 @@ contract StaekFactory is Owned {
     /**
      * Add Staekhouse
      *
-     * Token managers can create and manage a new staekhouse
-     * exclusively for their ERC20-compatible token.
+     * Any user can create and manage a new staekhouse
+     * exclusively for their desired ERC20-compatible token.
      *
-     * Taxable Staekhouses
-     * -------------------
+     * Staekhouse Debts
+     * ----------------
      *
-     * Token managers may DEBIT staeked tokens from owners, if the
-     * `_allowDebit` flag is set to true. All DEBITs made are recorded
+     * Token managers may DEBT staeked tokens from owners, if the
+     * `_debtRate` is greater than zero. All DEBTs made are recorded
      * to the Ethereum Event Log.
      */
     function addStaekhouse(
         address _token,
         uint _lockInterval,
-        uint _debitLimit,
-        uint _debitRate
+        uint _debtLimit,
+        uint _debtRate
     ) external returns (bytes32 staekhouseId) {
         /* Set last block hash. */
         bytes32 lastBlockHash = blockhash(block.number - 1);
@@ -385,45 +404,65 @@ contract StaekFactory is Owned {
             token: _token,
             owner: msg.sender,
             ownerLockTime: lockTime,
-            providerDebitLimit: _debitLimit,
-            providerDebitRate: _debitRate,
+            providerDebtLimit: _debtLimit,
+            providerDebtRate: _debtRate,
             providerLockTime: lockTime,
-            lockInterval: lockInterval
+            lockInterval: lockInterval,
+            balance: uint(0)
         });
 
         /* Add new staekhouse. */
         _staekhouses[staekhouseId] = staekhouse;
 
+        /* Set location. */
+        _zer0netDb.setAddress(staekhouseId, address(this));
+
+        /* Set block number. */
+        _zer0netDb.setUint(staekhouseId, block.number);
+
         /* Broadcast event. */
-        emit Added(staekhouseId, _token);
+        emit Staeking(staekhouseId, _token);
     }
 
     /**
-     * Remove Staekhouse
-     *
-     * NOTE: Staekhouses are currently permanent, therefore
-     *       this function is un-implemented.
+     * Add (Token) Manager
      */
-    // function _removeStaekhouse(bytes32 _staekhouseId);
-
-    /**
-     * Set Authorized (User / Contract)
-     *
-     * NOTE: Restricted to the Staekhouse owner ONLY.
-     */
-    function setAuth(
-        bytes32 _staekhouseId,
-        address _authorized,
-        bool _auth
-    ) external returns (bool success) {
-        // FIXME Must validate staekhouse OWNER ONLY.
-
+    function addManager(
+        address _token,
+        address _tokenManager
+    ) external onlyAuthBy0Admin returns (bool success) {
         /* Set hash. */
         bytes32 hash = keccak256(abi.encodePacked(
-            _authorized, '.has.auth.for.', _staekhouseId));
+            _namespace, '.',
+            _tokenManager,
+            '.has.auth.for.',
+            _token
+        ));
 
         /* Set value to Zer0net Db. */
-        _zer0netDb.setBool(hash, _auth);
+        _zer0netDb.setBool(hash, true);
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Remove (Token) Manager
+     */
+    function removeManager(
+        address _token,
+        address _tokenManager
+    ) external onlyAuthBy0Admin returns (bool success) {
+        /* Set hash. */
+        bytes32 hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            _tokenManager,
+            '.has.auth.for.',
+            _token
+        ));
+
+        /* Set value to Zer0net Db. */
+        _zer0netDb.setBool(hash, false);
 
         /* Return success. */
         return true;
@@ -440,110 +479,38 @@ contract StaekFactory is Owned {
      */
     function staekUp(
         bytes32 _staekhouseId,
-        uint _tokens
-    ) external returns (uint staek) {
-        /* Retrieve token. */
-        address token = _staekhouses[_staekhouseId].token;
-
-        /* Return staek. */
-        return _staekUp(_staekhouseId, token, msg.sender, _tokens);
-    }
-
-    /**
-     * Receive Approval
-     *
-     * Will typically be called from `approveAndCall`.
-     */
-    function receiveApproval(
-        address _from,
         uint _tokens,
-        address _token,
-        bytes _data
-    ) public returns (bool success) {
-        /* Validate that we have 32 bytes for the staekhouse id. */
-        if (_data.length != 32) {
-            revert('Oops! Please provide a valid staekhouse id.');
-        }
+        address _staekholder,
+        uint _staek,
+        uint _expires,
+        uint _nonce,
+        bytes _signature
+    ) external returns (bool success) {
+        /* Retrieve staekhouse. */
+        Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
 
-        /* Retrieve the staekhouse id from the (data) payload. */
-        bytes32 staekhouse = _bytesToBytes32(_data);
+        /* Transfer the ERC-20 tokens into Staek(house) Factory account. */
+        // NOTE: This is performed first to prevent re-entry attack.
+        _zeroCache().transfer(
+            staekhouse.token,
+            msg.sender,
+            address(this),
+            _tokens,
+            _staekholder,
+            _staek,
+            _expires,
+            _nonce,
+            _signature
+        );
 
-        /* Credit owner's staek for staekhouse id. */
-        _staekUp(staekhouse, _token, _from, _tokens);
+        /* Increase staekhouse balance. */
+        staekhouse.balance = staekhouse.balance.add(_tokens);
+
+        /* Broadcast event. */
+        emit StaekUp(_staekhouseId, _tokens);
 
         /* Return success. */
         return true;
-    }
-
-    /**
-     * Staek Up (Tokens Increase)
-     *
-     * NOTE: Transfers occur exclusively via the ZeroCache wallet.
-     */
-    function _staekUp(
-        bytes32 _staekhouseId,
-        address _token,
-        address _owner,
-        uint _tokens
-    ) private returns (uint staek) {
-        /* Update time-to-live. */
-        // FIXME Pull blocks per generation from LIVE CONTRACT??
-        _setTTL(_staekhouseId, _TEMP_BLOCKS_PER_GENERATION);
-
-        /* Retrieve staekhouse token. */
-        address token = _staekhouses[_staekhouseId].token;
-
-        /* Validate token. */
-        // NOTE: Used to validate `receiveApproval`.
-        if (token != _token) {
-            revert('Oops! That token is NOT supported in this staekhouse.');
-        }
-
-        // FIXME Restrict token transfer from ZeroCache wallet.
-
-        /* Transfer the ERC-20 tokens into Staek(house) Factory. */
-        // NOTE: This is performed first to prevent re-entry attack.
-        ERC20Interface(token).transferFrom(
-            _owner,
-            address(this),
-            _tokens
-        );
-
-        /* Initialize hash. */
-        bytes32 hash;
-
-        /* Set hash. */
-        hash = keccak256(abi.encodePacked(
-            _namespace, '.',
-            _owner,
-            '.staek.for.',
-            _staekhouseId
-        ));
-
-        /* Retrieve value from Zer0net Db. */
-        staek = _zer0netDb.getUint(hash);
-
-        /* Re-calculate staek. */
-        staek = staek.add(_tokens);
-
-        /* Set value to Zer0net Db. */
-        _zer0netDb.setUint(hash, staek);
-
-        /* Set hash. */
-        hash = keccak256(abi.encodePacked(
-            _namespace, '.',
-            _staekhouseId,
-            '.total.staek'
-        ));
-
-        /* Retrieve value from Zer0net Db. */
-        staek = _zer0netDb.getUint(hash);
-
-        /* Re-calculate staek. */
-        staek = staek.add(_tokens);
-
-        /* Set value to Zer0net Db. */
-        _zer0netDb.setUint(hash, staek);
     }
 
     /**
@@ -555,19 +522,11 @@ contract StaekFactory is Owned {
         bytes32 _staekhouseId,
         uint _tokens
     ) external returns (uint staek) {
-        /* Update time-to-live. */
-        // FIXME Pull blocks per generation from LIVE CONTRACT??
-        _setTTL(_staekhouseId, _TEMP_BLOCKS_PER_GENERATION);
-
-        /* Initialize hash. */
-        bytes32 hash;
-
         /* Set hash. */
-        hash = keccak256(abi.encodePacked(
+        bytes32 hash = keccak256(abi.encodePacked(
             _namespace, '.',
-            msg.sender,
-            '.staek.for.',
-            _staekhouseId
+            _staekhouseId,
+            '.balance'
         ));
 
         /* Retrieve value from Zer0net Db. */
@@ -584,42 +543,62 @@ contract StaekFactory is Owned {
         /* Set value to Zer0net Db. */
         _zer0netDb.setUint(hash, staek);
 
-        /* Set hash. */
-        hash = keccak256(abi.encodePacked(
-            _namespace, '.',
-            _staekhouseId,
-            '.total.staek'
-        ));
-
-        /* Retrieve value from Zer0net Db. */
-        staek = _zer0netDb.getUint(hash);
-
-        /* Re-calculate staek. */
-        staek = staek.sub(_tokens);
-
-        /* Set value to Zer0net Db. */
-        _zer0netDb.setUint(hash, staek);
-
         /* Retrieve staekhouse token. */
         address token = _staekhouses[_staekhouseId].token;
 
-        // FIXME Restrict token transfer to ZeroCache wallet.
-
         /* Transfer the ERC-20 tokens back to owner. */
         // NOTE: This is performed last to prevent re-entry attack.
-        ERC20Interface(token).transferFrom(
-            address(this),
+        _zeroCache().transfer(
             msg.sender,
+            token,
             _tokens
         );
     }
 
     /**
-     * Staek Renewal
+     * Owner Renewal
      */
-    function staekRenewal(
+    function ownerRenewal(
         bytes32 _staekhouseId
     ) external returns (bool success) {
+        /* Retrieve staekhouse. */
+        Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
+
+        /* Validate owner. */
+        if (msg.sender != staekhouse.owner) {
+            revert('Oops! You are NOT authorized here.');
+        }
+
+        /* Calculate new owner lock time. */
+        uint newOwnerLockTime = staekhouse.ownerLockTime
+            .add(staekhouse.lockInterval);
+
+        /* Set updated lock time. */
+        _setOwnerTTL(_staekhouseId, newOwnerLockTime);
+
+        /* Broadcast event. */
+        emit Renewal(_staekhouseId, msg.sender);
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Provider Renewal
+     */
+    function providerRenewal(
+        bytes32 _staekhouseId
+    ) external onlyTokenManager(_staekhouseId) returns (bool success) {
+        /* Retrieve staekhouse. */
+        Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
+
+        /* Calculate new provider lock time. */
+        uint newProviderLockTime = staekhouse.providerLockTime
+            .add(staekhouse.lockInterval);
+
+        /* Set updated lock time. */
+        _setProviderTTL(_staekhouseId, newProviderLockTime);
+
         /* Broadcast event. */
         emit Renewal(_staekhouseId, msg.sender);
 
@@ -646,6 +625,28 @@ contract StaekFactory is Owned {
         return true;
     }
 
+    /**
+     * Withdraw
+     */
+    function withdraw(
+        bytes32 _staekhouseId,
+        uint _tokens
+    ) external returns (bool success) {
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Collect Debt
+     */
+    function collectDebt(
+        bytes32 _staekhouseId,
+        uint _tokens
+    ) external onlyTokenManager(_staekhouseId) returns (bool success) {
+        /* Return success. */
+        return true;
+    }
+
 
     /***************************************************************************
      *
@@ -657,41 +658,67 @@ contract StaekFactory is Owned {
      * (Get) Balance Of
      */
     function balanceOf(
-        bytes32 _staekhouseId,
-        address _owner
+        bytes32 _staekhouseId
     ) public view returns (uint balance) {
-        /* Set hash. */
-        bytes32 hash = keccak256(abi.encodePacked(
-            _namespace, '.',
-            _owner,
-            '.staek.for.',
-            _staekhouseId
-        ));
+        /* Retrieve staekhouse. */
+        Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
 
-        /* Retrieve value from Zer0net Db. */
-        balance = _zer0netDb.getUint(hash);
+        /* Retrieve balance. */
+        balance = staekhouse.balance;
     }
 
     /**
-     * Get Time-To-Live
+     * Get Staekhouse (Metadata)
+     *
+     * Retrieves the location and block number of the bin data
+     * stored for the specified `_staekhouseId`.
+     *
+     * NOTE: DApps can then read the `Staeking` event from the Ethereum
+     *       Event Log, at the specified point, to recover the stored metadata.
+     */
+    function _getStaekhouse(
+        bytes32 _staekhouseId
+    ) private view returns (
+        address location,
+        uint blockNum
+    ) {
+        /* Retrieve location. */
+        location = _zer0netDb.getAddress(_staekhouseId);
+
+        /* Retrieve block number. */
+        blockNum = _zer0netDb.getUint(_staekhouseId);
+    }
+
+    /**
+     * Get Owner Time-To-Live
      *
      * Block number to re-enable owner's access to execute on-chain,
-     * staek'd Minado commands.
+     * staekhouse commands.
      */
-    function getTTL(
-        bytes32 _staekhouseId,
-        address _owner
+    function getOwnerTTL(
+        bytes32 _staekhouseId
     ) public view returns (uint ttl) {
-        /* Set hash. */
-        bytes32 hash = keccak256(abi.encodePacked(
-            _namespace, '.',
-            _staekhouseId, '.',
-            _owner,
-            '.ttl'
-        ));
+        /* Retrieve staekhouse. */
+        Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
 
-        /* Retrieve value from Zer0net Db. */
-        ttl = _zer0netDb.getUint(hash);
+        /* Retrieve TTL. */
+        ttl = staekhouse.ownerLockTime;
+    }
+
+    /**
+     * Get Provider Time-To-Live
+     *
+     * Block number to re-enable provider's access to execute on-chain,
+     * staekhouse commands.
+     */
+    function getProviderTTL(
+        bytes32 _staekhouseId
+    ) public view returns (uint ttl) {
+        /* Retrieve staekhouse. */
+        Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
+
+        /* Retrieve TTL. */
+        ttl = staekhouse.providerLockTime;
     }
 
     /**
@@ -709,27 +736,117 @@ contract StaekFactory is Owned {
      */
 
     /**
-     * Set Time-To-Live
+     * Set Owner Time-To-Live
      *
      * Set the block number for the owner's next TTL.
      */
-    function _setTTL(
+    function _setOwnerTTL(
         bytes32 _staekhouseId,
-        uint _blocksPerGeneration
-    ) private returns (uint ttl) {
-        /* Set hash. */
-        bytes32 hash = keccak256(abi.encodePacked(
-            _namespace, '.',
-            _staekhouseId, '.',
-            msg.sender,
-            '.ttl'
-        ));
+        uint _lockTime
+    ) private returns (bool success) {
+        /* Retrieve staekhouse. */
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
 
         /* Set TTL. */
-        ttl = block.number + _blocksPerGeneration;
+        staekhouse.ownerLockTime = _lockTime;
 
-        /* Set value in Zer0net Db. */
-        _zer0netDb.setUint(hash, ttl);
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Set Provider Time-To-Live
+     *
+     * Set the block number for the service provider's next TTL.
+     */
+    function _setProviderTTL(
+        bytes32 _staekhouseId,
+        uint _lockTime
+    ) private returns (bool success) {
+        /* Retrieve staekhouse. */
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
+
+        /* Set TTL. */
+        staekhouse.providerLockTime = _lockTime;
+
+        /* Return success. */
+        return true;
+    }
+
+
+    /***************************************************************************
+     *
+     * INTERFACES
+     *
+     */
+
+    /**
+     * Supports Interface (EIP-165)
+     *
+     * (see: https://github.com/ethereum/EIPs/blob/master/EIPS/eip-165.md)
+     *
+     * NOTE: Must support the following conditions:
+     *       1. (true) when interfaceID is 0x01ffc9a7 (EIP165 interface)
+     *       2. (false) when interfaceID is 0xffffffff
+     *       3. (true) for any other interfaceID this contract implements
+     *       4. (false) for any other interfaceID
+     */
+    function supportsInterface(
+        bytes4 _interfaceID
+    ) external pure returns (bool) {
+        /* Initialize constants. */
+        bytes4 InvalidId = 0xffffffff;
+        bytes4 ERC165Id = 0x01ffc9a7;
+
+        /* Validate condition #2. */
+        if (_interfaceID == InvalidId) {
+            return false;
+        }
+
+        /* Validate condition #1. */
+        if (_interfaceID == ERC165Id) {
+            return true;
+        }
+
+        // TODO Add additional interfaces here.
+
+        /* Return false (for condition #4). */
+        return false;
+    }
+
+    /**
+     * ECRecovery Interface
+     */
+    function _ecRecovery() private view returns (
+        ECRecovery ecrecovery
+    ) {
+        /* Initialize hash. */
+        bytes32 hash = keccak256('aname.ecrecovery');
+
+        /* Retrieve value from Zer0net Db. */
+        address aname = _zer0netDb.getAddress(hash);
+
+        /* Initialize interface. */
+        ecrecovery = ECRecovery(aname);
+    }
+
+    /**
+     * ZeroCache Interface
+     *
+     * Retrieves the current ZeroCache interface,
+     * using the aname record from Zer0netDb.
+     */
+    function _zeroCache() private view returns (
+        ZeroCacheInterface zeroCache
+    ) {
+        /* Initialize hash. */
+        bytes32 hash = keccak256('aname.zerocache');
+
+        /* Retrieve value from Zer0net Db. */
+        address aname = _zer0netDb.getAddress(hash);
+
+        /* Initialize interface. */
+        zeroCache = ZeroCacheInterface(aname);
     }
 
 
