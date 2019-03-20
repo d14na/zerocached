@@ -7,11 +7,28 @@ pragma solidity ^0.4.25;
  *
  * StaekFactory - Staek(house) Factory for ERC-20 Staek(-ing) Management
  *
- *                Token Managers with ZeroCache support for their tokens can
- *                create a new staekhouse to hold and manage their
- *                ERC20-compatible tokens.
+ *                *** Restricted to Token Managers w/ ZeroCache Integration ***
+ *                    ( see WaitingList.sol for more info )
  *
- * Version 19.3.19
+ *                Offers users the ability to create & manage their own
+ *                staekhouse(s) for ANY ERC20-compatible token they choose.
+ *
+ *                Limited DEBT-ing (token withdrawal) rights are granted to the
+ *                service provider / stakeholder. However, all contract options
+ *                are pre-authorized and stored on-chain at creation time.
+ *
+ *                What are the benefits of STAEK-ing?
+ *                -----------------------------------
+ *
+ *                Staekhouses allow users the ability to self-manage a
+ *                time-locked STAEK (an escrow of tokens) in compatible DApps
+ *                that provide ANY or ALL the following:
+ *                    - Fee-less, On-chain Token Transactions
+ *                    - Recurring / Subscription Services
+ *                    - Content and Access Restrictions
+ *                    - Community-based Voting & Governance
+ *
+ * Version 19.3.20
  *
  * https://d14na.org
  * support@d14na.org
@@ -166,12 +183,8 @@ contract ZeroCacheInterface {
  *
  * @notice Staek(house) Factory
  *
- * @dev Allows token managers with ZeroCache compatability for their tokens to
- *      creates individual staekhouses. Staekhouses allow your users to staek
- *      your token for use with:
- *          - Premium Service Offerings
- *          - Access Restrictions
- *          - Voting & Governance
+ * @dev Allows token managers with ZeroCache integration for their tokens to
+ *      support individual staekhouses.
  *
  *      NOTE: All on-chain token transfers occur via the ZeroCache wallet.
  */
@@ -194,25 +207,22 @@ contract StaekFactory is Owned {
     string private _namespace = 'staek.factory';
 
     /**
-     * Initialize Staekhouse
+     * Initialize Staekhouse Structure
      *
-     * token - Any ERC20-compatible token.
-     * lockInterval - Time for owners and providers to wait
-     *                between transfers.
-     * owner - The token manager.
-     * ownerLockTime - Places a limit on the owner's "first"
-     *                 withdrawal.
-     * providerDebtLimit - limits debt amount (per debt cycle)
-     * providerDebtRate - limits debt percentage (per debt cycle)
-     * providerLockTime - debt (transfer) wait cycle
+     * token            - ANY ZeroCache-integrated token.
+     * owner            - The token owner.
+     * ownerLockTime    - Places time limit on the owner's withdrawal(s).
+     * providerLockTime - Places time limit on the provider's withdrawal(s).
+     * debtLimit        - Maximum debt (withdrawal) amount (per debt cycle).
+     * lockInterval     - Block number owners and providers allow transfers.
+     * staek            - Quanity of tokens being STAEKed.
      */
     struct Staekhouse {
         address token;
         address owner;
         uint ownerLockTime;
-        uint providerDebtLimit;
-        uint providerDebtRate;
         uint providerLockTime;
+        uint debtLimit;
         uint lockInterval;
         uint balance;
     }
@@ -225,8 +235,8 @@ contract StaekFactory is Owned {
     uint _DEFAULT_LOCK_INTERVAL = 1000;
 
     /* Initialize maximum lock interval. */
-    // NOTE: 17,250 blocks is approximately 72 hours.
-    uint _MAX_LOCK_INTERVAL = 17250;
+    // NOTE: 175,000 blocks is approximately 30 days.
+    uint _MAX_LOCK_INTERVAL = 175000;
 
     /* Initialize minimum lock interval. */
     // NOTE: 20 blocks is approximately 5 minutes.
@@ -363,14 +373,14 @@ contract StaekFactory is Owned {
      * ----------------
      *
      * Token managers may DEBT staeked tokens from owners, if the
-     * `_debtRate` is greater than zero. All DEBTs made are recorded
+     * `_debtLimit` is greater than zero. All DEBTs made are recorded
      * to the Ethereum Event Log.
      */
     function addStaekhouse(
         address _token,
         uint _lockInterval,
         uint _debtLimit,
-        uint _debtRate
+        uint _debtPower
     ) external returns (bytes32 staekhouseId) {
         /* Set last block hash. */
         bytes32 lastBlockHash = blockhash(block.number - 1);
@@ -396,17 +406,24 @@ contract StaekFactory is Owned {
             lockInterval = _DEFAULT_LOCK_INTERVAL;
         }
 
-        /* Initialize lock time. */
-        uint lockTime = lockInterval.add(block.number);
+        /* Calculate owner lock time. */
+        uint ownerLockTime = lockInterval.add(block.number);
+
+        /* Validate debt power. */
+        if (_debtPower == 0 || _debtPower > ownerLockTime) {
+            revert('Oops! You entered an INVALID debt power.');
+        }
+
+        /* Calculate provider lock time. */
+        uint providerLockTime = ownerLockTime.div(_debtPower);
 
         /* Initialize staekhouse. */
         Staekhouse memory staekhouse = Staekhouse({
             token: _token,
             owner: msg.sender,
-            ownerLockTime: lockTime,
-            providerDebtLimit: _debtLimit,
-            providerDebtRate: _debtRate,
-            providerLockTime: lockTime,
+            ownerLockTime: ownerLockTime,
+            providerLockTime: providerLockTime,
+            debtLimit: _debtLimit,
             lockInterval: lockInterval,
             balance: uint(0)
         });
