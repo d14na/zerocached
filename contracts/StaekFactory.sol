@@ -28,7 +28,7 @@ pragma solidity ^0.4.25;
  *                    - Content and Access Restrictions
  *                    - Community-based Voting & Governance
  *
- * Version 19.3.20
+ * Version 19.3.21
  *
  * https://d14na.org
  * support@d14na.org
@@ -207,7 +207,7 @@ contract StaekFactory is Owned {
     string private _namespace = 'staek.factory';
 
     /**
-     * Initialize Staekhouse Structure
+     * Staekhouse Structure
      *
      * token            - ANY ZeroCache-integrated token.
      * owner            - The token owner.
@@ -215,7 +215,7 @@ contract StaekFactory is Owned {
      * providerLockTime - Places time limit on the provider's withdrawal(s).
      * debtLimit        - Maximum debt (withdrawal) amount (per debt cycle).
      * lockInterval     - Block number owners and providers allow transfers.
-     * staek            - Quanity of tokens being STAEKed.
+     * balance          - Quanity of tokens being STAEKed.
      */
     struct Staekhouse {
         address token;
@@ -407,15 +407,17 @@ contract StaekFactory is Owned {
         }
 
         /* Calculate owner lock time. */
-        uint ownerLockTime = lockInterval.add(block.number);
+        uint ownerLockTime = block.number
+            .add(lockInterval);
 
         /* Validate debt power. */
-        if (_debtPower == 0 || _debtPower > ownerLockTime) {
+        if (_debtPower == 0 || _debtPower > lockInterval) {
             revert('Oops! You entered an INVALID debt power.');
         }
 
         /* Calculate provider lock time. */
-        uint providerLockTime = ownerLockTime.div(_debtPower);
+        uint providerLockTime = block.number
+            .add(lockInterval.div(_debtPower));
 
         /* Initialize staekhouse. */
         Staekhouse memory staekhouse = Staekhouse({
@@ -435,7 +437,7 @@ contract StaekFactory is Owned {
         _zer0netDb.setAddress(staekhouseId, address(this));
 
         /* Set block number. */
-        _zer0netDb.setUint(staekhouseId, block.number);
+        // _zer0netDb.setUint(staekhouseId, block.number);
 
         /* Broadcast event. */
         emit Staeking(staekhouseId, _token);
@@ -685,25 +687,54 @@ contract StaekFactory is Owned {
     }
 
     /**
-     * Get Staekhouse (Metadata)
+     * Get Staekhouse
      *
-     * Retrieves the location and block number of the bin data
-     * stored for the specified `_staekhouseId`.
+     * Retrieves the location of the Staek Factory currently holding the
+     * staek balance for the specified `_staekhouseId`.
      *
-     * NOTE: DApps can then read the `Staeking` event from the Ethereum
-     *       Event Log, at the specified point, to recover the stored metadata.
+     * Also retrieves ALL configuration details for the staekhouse.
+     *
+     * NOTE: Service providers can request the `_staekhouseId` to
+     *       verify proof of compliance to the service term agreement.
      */
-    function _getStaekhouse(
+    function getStaekhouse(
         bytes32 _staekhouseId
-    ) private view returns (
+    ) external view returns (
         address location,
-        uint blockNum
+        address token,
+        address owner,
+        uint ownerLockTime,
+        uint providerLockTime,
+        uint debtLimit,
+        uint lockInterval,
+        uint balance
     ) {
         /* Retrieve location. */
         location = _zer0netDb.getAddress(_staekhouseId);
 
-        /* Retrieve block number. */
-        blockNum = _zer0netDb.getUint(_staekhouseId);
+        /* Retrieve staekhouse. */
+        Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
+
+        /* Set token. */
+        token = staekhouse.token;
+
+        /* Set owner. */
+        owner = staekhouse.owner;
+
+        /* Set owner lock time. */
+        ownerLockTime = staekhouse.ownerLockTime;
+
+        /* Set provider lock time. */
+        providerLockTime = staekhouse.providerLockTime;
+
+        /* Set debt limit. */
+        debtLimit = staekhouse.debtLimit;
+
+        /* Set lock interval. */
+        lockInterval = staekhouse.lockInterval;
+
+        /* Set balance. */
+        balance = staekhouse.balance;
     }
 
     /**
