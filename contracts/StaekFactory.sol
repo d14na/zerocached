@@ -7,11 +7,12 @@ pragma solidity ^0.4.25;
  *
  * StaekFactory - Staek(house) Factory for ERC-20 Staek(-ing) Management
  *
- *                *** Restricted to Token Managers w/ ZeroCache Integration ***
- *                    ( see WaitingList.sol for more info )
+ *                *** Used Exclusively by Tokens w/ ZeroCache Integration ***
+ *                    ( see WaitingList.sol for integration info )
  *
- *                Offers users the ability to create & manage their own
- *                staekhouse(s) for ANY ERC20-compatible token they choose.
+ *                Offering both staekers and providers the ability to
+ *                create & manage their own staekhouse(s) for ANY
+ *                ERC20-compatible token they choose.
  *
  *                Limited DEBT-ing (token withdrawal) rights are granted to the
  *                service provider / stakeholder. However, all contract options
@@ -28,7 +29,7 @@ pragma solidity ^0.4.25;
  *                    - Content and Access Restrictions
  *                    - Community-based Voting & Governance
  *
- * Version 19.3.21
+ * Version 19.3.23
  *
  * https://d14na.org
  * support@d14na.org
@@ -209,22 +210,30 @@ contract StaekFactory is Owned {
     /**
      * Staekhouse Structure
      *
-     * token            - ANY ZeroCache-integrated token.
-     * owner            - The token owner.
-     * ownerLockTime    - Places time limit on the owner's withdrawal(s).
-     * providerLockTime - Places time limit on the provider's withdrawal(s).
-     * debtLimit        - Maximum debt (withdrawal) amount (per debt cycle).
-     * lockInterval     - Block number owners and providers allow transfers.
-     * balance          - Quanity of tokens being STAEKed.
+     * token          - ANY ZeroCache-integrated token.
+     * owner          - The staekhouse owner.
+     * isPrivate      - Flag handling for either single or multiple user(s).
+     * debtLimit      - Maximum debt (withdrawal) amount (per debt cycle).
+     * debtPower      - Reduces the `lockInterval` for `debtLimit` by this divisor.
+     * lockInterval   - Number of blocks to enfore lock time (during creation/renewal).
+     * staekLockTimes - Places time limit on staeker withdrawal(s).
+     * debtLockTimes  - Places time limit on debt (provider) withdrawal(s).
+     * balances       - Map of token quantities for individual STAEKers.
+     * inceptions     - Initial staeking times.
+     * collections    - Debt collections made during debt cycles.
      */
     struct Staekhouse {
         address token;
         address owner;
-        uint ownerLockTime;
-        uint providerLockTime;
+        bool isPrivate;
         uint debtLimit;
+        uint debtPower;
         uint lockInterval;
-        uint balance;
+        mapping(address => uint) staekLockTimes;
+        mapping(address => uint) debtLockTimes;
+        mapping(address => uint) balances;
+        mapping(address => uint) inceptions;
+        mapping(uint => mapping(address => uint)) collections;
     }
 
     /* Initialize staekhouses. */
@@ -267,11 +276,6 @@ contract StaekFactory is Owned {
     );
 
     event StaekDown(
-        bytes32 indexed staekhouseId,
-        uint tokens
-    );
-
-    event Withdrawal(
         bytes32 indexed staekhouseId,
         uint tokens
     );
@@ -331,7 +335,7 @@ contract StaekFactory is Owned {
     /**
      * @dev Only allow access to "registered" staekhouse authorized user/contract.
      */
-    modifier onlyTokenManager(
+    modifier onlyTokenProvider(
         bytes32 _staekhouseId
     ) {
         /* Retrieve staekhouse token. */
@@ -380,7 +384,8 @@ contract StaekFactory is Owned {
         address _token,
         uint _lockInterval,
         uint _debtLimit,
-        uint _debtPower
+        uint _debtPower,
+        bool _isPrivate
     ) external returns (bytes32 staekhouseId) {
         /* Set last block hash. */
         bytes32 lastBlockHash = blockhash(block.number - 1);
@@ -406,8 +411,9 @@ contract StaekFactory is Owned {
             lockInterval = _DEFAULT_LOCK_INTERVAL;
         }
 
-        /* Calculate owner lock time. */
-        uint ownerLockTime = block.number
+        /* Calculate staek lock time. */
+        // NOTE: This will be applied to the token owner.
+        uint staekLockTime = block.number
             .add(lockInterval);
 
         /* Validate debt power. */
@@ -415,19 +421,25 @@ contract StaekFactory is Owned {
             revert('Oops! You entered an INVALID debt power.');
         }
 
-        /* Calculate provider lock time. */
-        uint providerLockTime = block.number
+        /* Calculate debt lock time. */
+        uint debtLockTime = block.number
             .add(lockInterval.div(_debtPower));
 
         /* Initialize staekhouse. */
+        // NOTE: Either a STAEKer OR a provider can create a staekhouse.
         Staekhouse memory staekhouse = Staekhouse({
             token: _token,
             owner: msg.sender,
-            ownerLockTime: ownerLockTime,
-            providerLockTime: providerLockTime,
+            isPrivate: _isPrivate,
             debtLimit: _debtLimit,
-            lockInterval: lockInterval,
-            balance: uint(0)
+            debtPower: _debtPower,
+            lockInterval: lockInterval
+            // NOTE: mappings have to be skipped in memory.
+            // staekLockTimes: staekLockTimes,
+            // debtLockTimes: debtLockTimes,
+            // balances: uint(0),
+            // inceptions: uint(0),
+            // collections: block.number,
         });
 
         /* Add new staekhouse. */
@@ -506,7 +518,7 @@ contract StaekFactory is Owned {
         bytes _signature
     ) external returns (bool success) {
         /* Retrieve staekhouse. */
-        Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
 
         /* Transfer the ERC-20 tokens into Staek(house) Factory account. */
         // NOTE: This is performed first to prevent re-entry attack.
@@ -523,7 +535,8 @@ contract StaekFactory is Owned {
         );
 
         /* Increase staekhouse balance. */
-        staekhouse.balance = staekhouse.balance.add(_tokens);
+        staekhouse.balances[msg.sender] =
+            staekhouse.balances[msg.sender].add(_tokens);
 
         /* Broadcast event. */
         emit StaekUp(_staekhouseId, _tokens);
@@ -534,92 +547,242 @@ contract StaekFactory is Owned {
 
     /**
      * Staek Down (Tokens Decrease)
-     *
-     * NOTE: Transfers occur exclusively via the ZeroCache wallet.
      */
     function staekDown(
         bytes32 _staekhouseId,
         uint _tokens
-    ) external returns (uint staek) {
-        /* Set hash. */
-        bytes32 hash = keccak256(abi.encodePacked(
-            _namespace, '.',
+    ) external returns (bool success) {
+        /* Staek down. */
+        return _staekDown(
             _staekhouseId,
-            '.balance'
-        ));
-
-        /* Retrieve value from Zer0net Db. */
-        staek = _zer0netDb.getUint(hash);
-
-        /* Validate staek balance. */
-        if (staek < _tokens) {
-            revert('Oops! You DO NOT have enough staek.');
-        }
-
-        /* Re-calculate staek. */
-        staek = staek.sub(_tokens);
-
-        /* Set value to Zer0net Db. */
-        _zer0netDb.setUint(hash, staek);
-
-        /* Retrieve staekhouse token. */
-        address token = _staekhouses[_staekhouseId].token;
-
-        /* Transfer the ERC-20 tokens back to owner. */
-        // NOTE: This is performed last to prevent re-entry attack.
-        _zeroCache().transfer(
             msg.sender,
-            token,
             _tokens
         );
     }
 
-    /**
-     * Owner Renewal
-     */
-    function ownerRenewal(
-        bytes32 _staekhouseId
-    ) external returns (bool success) {
-        /* Retrieve staekhouse. */
-        Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
+    // TODO Add relayer option.
 
-        /* Validate owner. */
-        if (msg.sender != staekhouse.owner) {
-            revert('Oops! You are NOT authorized here.');
+    /**
+     * Staek Down (Tokens Decrease)
+     *
+     * NOTE: Transfers occur exclusively via the ZeroCache wallet.
+     */
+    function _staekDown(
+        bytes32 _staekhouseId,
+        address _owner,
+        uint _tokens
+    ) private returns (bool success) {
+        /* Retrieve staekhouse. */
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
+
+        /* Validate staek balance. */
+        if (staekhouse.balances[_owner] < _tokens) {
+            revert('Oops! You DO NOT have enough staek.');
         }
 
-        /* Calculate new owner lock time. */
-        uint newOwnerLockTime = staekhouse.ownerLockTime
-            .add(staekhouse.lockInterval);
+        /* Validate withdrawal permission. */
+        if (staekhouse.debtLockTimes[_owner] < block.number) {
+            revert('Oops! This staek is still TIME LOCKED.');
+        }
 
-        /* Set updated lock time. */
-        _setOwnerTTL(_staekhouseId, newOwnerLockTime);
+        /* Decrease staekhouse balance. */
+        staekhouse.balances[_owner] =
+            staekhouse.balances[_owner].sub(_tokens);
+
+        /* Transfer the ERC-20 tokens back to owner. */
+        // NOTE: This is performed last to prevent re-entry attack.
+        _zeroCache().transfer(
+            _owner,
+            staekhouse.token,
+            _tokens
+        );
 
         /* Broadcast event. */
-        emit Renewal(_staekhouseId, msg.sender);
+        emit StaekDown(_staekhouseId, _tokens);
 
         /* Return success. */
         return true;
     }
 
     /**
-     * Provider Renewal
+     * Debt Collection (For Public)
      */
-    function providerRenewal(
+    function debtCollect(
+        bytes32 _staekhouseId,
+        address _staeker,
+        uint _tokens
+    ) external onlyTokenProvider(_staekhouseId) returns (bool success) {
+        /* Retrieve staekhouse. */
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
+
+        /* Validate staek balance. */
+        if (staekhouse.balances[_staeker] < _tokens) {
+            revert('Oops! You DO NOT have enough staek.');
+        }
+
+        /* Retrieve current lock cycle. */
+        uint lockCycle = getLockCycle(_staekhouseId, _staeker);
+
+        /* Add tokens to this cycle's collections balance. */
+        staekhouse.collections[lockCycle][_staeker] =
+            staekhouse.collections[lockCycle][_staeker].add(_tokens);
+
+        /* Validate debt permission. */
+        if (staekhouse.collections[lockCycle][_staeker] > staekhouse.debtLimit) {
+            revert('Oops! You are OVER your collections limit for this cycle.');
+        }
+
+        /* Decrease staekhouse balance. */
+        staekhouse.balances[_staeker] =
+            staekhouse.balances[_staeker].sub(_tokens);
+
+        /* Transfer the ERC-20 tokens back to owner. */
+        // NOTE: This is performed last to prevent re-entry attack.
+        _zeroCache().transfer(
+            msg.sender,
+            staekhouse.token,
+            _tokens
+        );
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Staek Extension
+     *
+     * NOTE: Calculated based on "previous lock" time.
+     */
+    function staekExtension(
         bytes32 _staekhouseId
-    ) external onlyTokenManager(_staekhouseId) returns (bool success) {
+    ) external returns (bool success) {
+        /* Retrieve staekhouse. */
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
+
+        /* Validate owner. */
+        if (msg.sender != staekhouse.owner) {
+            revert('Oops! You are NOT authorized here.');
+        }
+
+        /* Calculate "extended" staek lock time. */
+        uint staekLockTime = staekhouse.staekLockTimes[msg.sender]
+            .add(staekhouse.lockInterval);
+
+        /* Set updated STAEK lock time. */
+        _setStaekTTL(
+            _staekhouseId,
+            msg.sender,
+            staekLockTime
+        );
+
+        /* Broadcast event. */
+        emit Renewal(
+            _staekhouseId,
+            msg.sender
+        );
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Staek Renewal
+     *
+     * NOTE: Calculated based on "current block" time.
+     */
+    function staekRenewal(
+        bytes32 _staekhouseId
+    ) external returns (bool success) {
+        /* Retrieve staekhouse. */
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
+
+        /* Validate owner. */
+        if (msg.sender != staekhouse.owner) {
+            revert('Oops! You are NOT authorized here.');
+        }
+
+        /* Calculate "renewed" staek lock time. */
+        uint staekLockTime = block.number
+            .add(staekhouse.lockInterval);
+
+        /* Set updated STAEK lock time. */
+        _setStaekTTL(
+            _staekhouseId,
+            msg.sender,
+            staekLockTime
+        );
+
+        /* Broadcast event. */
+        emit Renewal(
+            _staekhouseId,
+            msg.sender
+        );
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Debt (Provider) Extension
+     *
+     * NOTE: Calculated based on "previous lock" time.
+     */
+    function debtExtension(
+        bytes32 _staekhouseId,
+        address _staeker
+    ) external onlyTokenProvider(_staekhouseId) returns (bool success) {
+        /* Retrieve staekhouse. */
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
+
+        /* Calculate "extended" debt lock time. */
+        uint debtLockTime = staekhouse.debtLockTimes[_staeker]
+            .add(staekhouse.lockInterval.div(staekhouse.debtPower));
+
+        /* Set updated lock time. */
+        _setDebtTTL(
+            _staekhouseId,
+            _staeker,
+            debtLockTime
+        );
+
+        /* Broadcast event. */
+        emit Renewal(
+            _staekhouseId,
+            msg.sender
+        );
+
+        /* Return success. */
+        return true;
+    }
+
+    /**
+     * Debt (Provider) Renewal
+     *
+     * NOTE: Calculated based on "current block" time.
+     */
+    function debtRenewal(
+        bytes32 _staekhouseId,
+        address _staeker
+    ) external onlyTokenProvider(_staekhouseId) returns (bool success) {
         /* Retrieve staekhouse. */
         Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
 
-        /* Calculate new provider lock time. */
-        uint newProviderLockTime = staekhouse.providerLockTime
-            .add(staekhouse.lockInterval);
+        /* Calculate "renewed" debt lock time. */
+        uint debtLockTime = block.number
+            .add(staekhouse.lockInterval.div(staekhouse.debtPower));
 
         /* Set updated lock time. */
-        _setProviderTTL(_staekhouseId, newProviderLockTime);
+        _setDebtTTL(
+            _staekhouseId,
+            _staeker,
+            debtLockTime
+        );
 
         /* Broadcast event. */
-        emit Renewal(_staekhouseId, msg.sender);
+        emit Renewal(
+            _staekhouseId,
+            msg.sender
+        );
 
         /* Return success. */
         return true;
@@ -637,31 +800,14 @@ contract StaekFactory is Owned {
      */
     function migrate(
         bytes32 _staekhouseId
-    ) external onlyStaekhouseOwner(_staekhouseId) view returns (
+    ) external onlyStaekhouseOwner(_staekhouseId) returns (
         bool success
     ) {
-        /* Return success. */
-        return true;
-    }
+        // TODO Add migration code.
 
-    /**
-     * Withdraw
-     */
-    function withdraw(
-        bytes32 _staekhouseId,
-        uint _tokens
-    ) external returns (bool success) {
-        /* Return success. */
-        return true;
-    }
+        /* Broadcast event. */
+        emit Migrate(_staekhouseId);
 
-    /**
-     * Collect Debt
-     */
-    function collectDebt(
-        bytes32 _staekhouseId,
-        uint _tokens
-    ) external onlyTokenManager(_staekhouseId) returns (bool success) {
         /* Return success. */
         return true;
     }
@@ -674,16 +820,50 @@ contract StaekFactory is Owned {
      */
 
     /**
-     * (Get) Balance Of
+     * Get Lock Cycle
+     *
+     * Returns the current generation (of the lock cycle).
+     */
+    function getLockCycle(
+        bytes32 _staekhouseId,
+        address _staeker
+    ) public view returns (uint generation) {
+        /* Retrieve staekhouse. */
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
+
+        /* Calculate number of elapsed blocks. */
+        uint blocksElapsed = block.number
+            .sub(staekhouse.inceptions[_staeker]);
+
+        /* Calculate current generation. */
+        generation = uint(blocksElapsed.div(staekhouse.lockInterval));
+    }
+
+    /**
+     * (Get) Balance Of (For Private)
      */
     function balanceOf(
         bytes32 _staekhouseId
     ) public view returns (uint balance) {
         /* Retrieve staekhouse. */
-        Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
 
         /* Retrieve balance. */
-        balance = staekhouse.balance;
+        balance = staekhouse.balances[staekhouse.owner];
+    }
+
+    /**
+     * (Get) Balance Of (For Public)
+     */
+    function balanceOf(
+        bytes32 _staekhouseId,
+        address _owner
+    ) public view returns (uint balance) {
+        /* Retrieve staekhouse. */
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
+
+        /* Retrieve balance. */
+        balance = staekhouse.balances[_owner];
     }
 
     /**
@@ -698,22 +878,23 @@ contract StaekFactory is Owned {
      *       verify proof of compliance to the service term agreement.
      */
     function getStaekhouse(
-        bytes32 _staekhouseId
+        bytes32 _staekhouseId,
+        address _staeker
     ) external view returns (
-        address location,
+        address factory,
         address token,
         address owner,
-        uint ownerLockTime,
-        uint providerLockTime,
+        uint staekLockTime,
+        uint debtLockTime,
         uint debtLimit,
         uint lockInterval,
         uint balance
     ) {
-        /* Retrieve location. */
-        location = _zer0netDb.getAddress(_staekhouseId);
+        /* Retrieve (location of) factory. */
+        factory = _zer0netDb.getAddress(_staekhouseId);
 
         /* Retrieve staekhouse. */
-        Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
 
         /* Set token. */
         token = staekhouse.token;
@@ -721,11 +902,11 @@ contract StaekFactory is Owned {
         /* Set owner. */
         owner = staekhouse.owner;
 
-        /* Set owner lock time. */
-        ownerLockTime = staekhouse.ownerLockTime;
+        /* Set staek lock time. */
+        staekLockTime = staekhouse.staekLockTimes[_staeker];
 
-        /* Set provider lock time. */
-        providerLockTime = staekhouse.providerLockTime;
+        /* Set debt (provider) lock time. */
+        debtLockTime = staekhouse.debtLockTimes[_staeker];
 
         /* Set debt limit. */
         debtLimit = staekhouse.debtLimit;
@@ -734,39 +915,41 @@ contract StaekFactory is Owned {
         lockInterval = staekhouse.lockInterval;
 
         /* Set balance. */
-        balance = staekhouse.balance;
+        balance = staekhouse.balances[_staeker];
     }
 
     /**
-     * Get Owner Time-To-Live
+     * Get Staek Time-To-Live
      *
      * Block number to re-enable owner's access to execute on-chain,
      * staekhouse commands.
      */
-    function getOwnerTTL(
-        bytes32 _staekhouseId
+    function getStaekTTL(
+        bytes32 _staekhouseId,
+        address _staeker
     ) public view returns (uint ttl) {
         /* Retrieve staekhouse. */
-        Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
 
         /* Retrieve TTL. */
-        ttl = staekhouse.ownerLockTime;
+        ttl = staekhouse.staekLockTimes[_staeker];
     }
 
     /**
-     * Get Provider Time-To-Live
+     * Get Debt Time-To-Live
      *
      * Block number to re-enable provider's access to execute on-chain,
      * staekhouse commands.
      */
-    function getProviderTTL(
-        bytes32 _staekhouseId
+    function getDebtTTL(
+        bytes32 _staekhouseId,
+        address _staeker
     ) public view returns (uint ttl) {
         /* Retrieve staekhouse. */
-        Staekhouse memory staekhouse = _staekhouses[_staekhouseId];
+        Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
 
         /* Retrieve TTL. */
-        ttl = staekhouse.providerLockTime;
+        ttl = staekhouse.debtLockTimes[_staeker];
     }
 
     /**
@@ -784,38 +967,40 @@ contract StaekFactory is Owned {
      */
 
     /**
-     * Set Owner Time-To-Live
+     * Set Staek Time-To-Live
      *
      * Set the block number for the owner's next TTL.
      */
-    function _setOwnerTTL(
+    function _setStaekTTL(
         bytes32 _staekhouseId,
+        address _staeker,
         uint _lockTime
     ) private returns (bool success) {
         /* Retrieve staekhouse. */
         Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
 
         /* Set TTL. */
-        staekhouse.ownerLockTime = _lockTime;
+        staekhouse.staekLockTimes[_staeker] = _lockTime;
 
         /* Return success. */
         return true;
     }
 
     /**
-     * Set Provider Time-To-Live
+     * Set Debt Time-To-Live
      *
      * Set the block number for the service provider's next TTL.
      */
-    function _setProviderTTL(
+    function _setDebtTTL(
         bytes32 _staekhouseId,
+        address _staeker,
         uint _lockTime
     ) private returns (bool success) {
         /* Retrieve staekhouse. */
         Staekhouse storage staekhouse = _staekhouses[_staekhouseId];
 
         /* Set TTL. */
-        staekhouse.providerLockTime = _lockTime;
+        staekhouse.debtLockTimes[_staeker] = _lockTime;
 
         /* Return success. */
         return true;
