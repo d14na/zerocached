@@ -65,7 +65,7 @@ _NOTE: trades are reserved to market orders ONLY_
 
 ##### Ropsten
 
-[0xbE6323479f0D315af35Dff1B86a6fC1A5Fe60f42](https://ropsten.etherscan.io/address/0xbE6323479f0D315af35Dff1B86a6fC1A5Fe60f42#code)
+[0x20A1DFB617c8c9CD87456A6F98981bdD7B84b360](https://ropsten.etherscan.io/address/0x20A1DFB617c8c9CD87456A6F98981bdD7B84b360#code)
 
 ##### Get Trade Price of Single Token
 
