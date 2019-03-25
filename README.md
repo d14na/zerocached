@@ -54,14 +54,14 @@ _NOTE: trades are reserved to market orders ONLY_
 
 ##### Base Tokens
 
-1. __[0GOLD](https://etherscan.io/token/0x6ef5bca539A4A01157af842B4823F54F9f7E9968)__ ZeroGold
+1. __[0GOLD](https://etherscan.io/token/0x6ef5bca539A4A01157af842B4823F54F9f7E9968)__ ZeroGold [ _[Oustanding](https://db.0net.io/v1/getUint/0x7c9b743fafb0894a5ed4a0481d020ca0d3d0856431557e7cee0de488236932b0)_ ]
 2. __[0xBTC](https://etherscan.io/token/0xB6eD7644C69416d67B522e20bC294A9a9B405B31)__ 0xBitcoin Token
 3. __[WBTC](https://etherscan.io/token/0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599)__ Wrapped Bitcoin
 4. __[WETH](https://etherscan.io/token/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2)__ Wrapped Ether
 
 ##### Mainnet
 
-[0x7eBBB6077345aa981ef2B5F189e6f631b41Db10f](https://etherscan.io/address/0x7eBBB6077345aa981ef2B5F189e6f631b41Db10f#code)
+[0xc3b09ceED594cc0a09ce082C022799C605AE20E5](https://etherscan.io/address/0xc3b09ceED594cc0a09ce082C022799C605AE20E5#code)
 
 ##### Ropsten
 
