@@ -5,10 +5,11 @@ pragma solidity ^0.4.25;
  * Copyright (c) 2019 Decentralization Authority MDAO.
  * Released under the MIT License.
  *
- * ZeroPriceIndex - Management system for maintaining the trade prices of
- *                  ERC tokens & collectibles listed within ZeroCache.
+ * ZeroPriceIndex - Management system for maintaining the "official" community
+ *                  trade prices of ERC tokens & collectibles listed within
+ *                  the ZeroCache.
  *
- * Version 19.3.12
+ * Version 19.3.24
  *
  * https://d14na.org
  * support@d14na.org
@@ -157,24 +158,12 @@ contract ZeroPriceIndex is Owned {
     /* Initialize Zer0net Db contract. */
     Zer0netDbInterface private _zer0netDb;
 
-    /* Initialize price update notifications. */
-    event PriceUpdate(
-        bytes32 indexed dataId,
-        uint value
-    );
-
-    /* Initialize price list update notifications. */
-    event PriceListUpdate(
-        bytes32 indexed listId,
-        bytes ipfsHash
-    );
-
     /**
      * Set Zero(Cache) Price Index namespaces
      *
      * NOTE: Keep all namespaces lowercase.
      */
-    string private _NAMESPACE = 'zpi';
+    string private _namespace = 'zpi';
 
     /* Set Dai Stablecoin (trade pair) base. */
     string private _TRADE_PAIR_BASE = 'DAI';
@@ -191,13 +180,33 @@ contract ZeroPriceIndex is Owned {
         'WETH'      // Wrapped Ether
     ];
 
+    /* Initialize price update notifications. */
+    event PriceUpdate(
+        bytes32 indexed dataId,
+        uint value
+    );
+
+    /* Initialize price list update notifications. */
+    event PriceListUpdate(
+        bytes32 indexed listId,
+        bytes ipfsHash
+    );
+
     /***************************************************************************
      *
      * Constructor
      */
     constructor() public {
+        /* Initialize Zer0netDb (eternal) storage database contract. */
+        // NOTE We hard-code the address here, since it should never change.
+        // _zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
+        _zer0netDb = Zer0netDbInterface(0x4C2f68bCdEEB88764b1031eC330aD4DF8d6F64D6); // ROPSTEN
+
+        /* Initialize (aname) hash. */
+        bytes32 hash = keccak256(abi.encodePacked('aname.', _namespace));
+
         /* Set predecessor address. */
-        _predecessor = 0x0;
+        _predecessor = _zer0netDb.getAddress(hash);
 
         /* Verify predecessor address. */
         if (_predecessor != 0x0) {
@@ -207,11 +216,6 @@ contract ZeroPriceIndex is Owned {
             /* Set (current) revision number. */
             _revision = lastRevision + 1;
         }
-
-        /* Initialize Zer0netDb (eternal) storage database contract. */
-        // NOTE We hard-code the address here, since it should never change.
-        // _zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
-        _zer0netDb = Zer0netDbInterface(0x4C2f68bCdEEB88764b1031eC330aD4DF8d6F64D6); // ROPSTEN
     }
 
     /**
@@ -220,7 +224,7 @@ contract ZeroPriceIndex is Owned {
     modifier onlyAuthBy0Admin() {
         /* Verify write access is only permitted to authorized accounts. */
         require(_zer0netDb.getBool(keccak256(
-            abi.encodePacked(msg.sender, '.has.auth.for.zero.price.index'))) == true);
+            abi.encodePacked(msg.sender, '.has.auth.for.', _namespace))) == true);
 
         _;      // function code is inserted here
     }
@@ -248,12 +252,11 @@ contract ZeroPriceIndex is Owned {
     function tradePriceOf(
         string _token
     ) external view returns (uint price) {
-        /* Initailze hash. */
-        bytes32 hash = 0x0;
-
         /* Set hash. */
-        hash = keccak256(abi.encodePacked(
-            _NAMESPACE, '.', _token, '.', _TRADE_PAIR_BASE
+        bytes32 hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            _token, '.',
+            _TRADE_PAIR_BASE
         ));
 
         /* Retrieve value from Zer0net Db. */
@@ -273,12 +276,11 @@ contract ZeroPriceIndex is Owned {
         address _token,
         uint _tokenId
     ) external view returns (uint price) {
-        /* Initailze hash. */
-        bytes32 hash = 0x0;
-
         /* Set hash. */
-        hash = keccak256(abi.encodePacked(
-            _NAMESPACE, '.', _token, '.', _tokenId
+        bytes32 hash = keccak256(abi.encodePacked(
+            _namespace, '.',
+            _token, '.',
+            _tokenId
         ));
 
         /* Retrieve value from Zer0net Db. */
@@ -314,7 +316,11 @@ contract ZeroPriceIndex is Owned {
         bytes32 dataId = 0x0;
 
         /* Set hash. */
-        dataId = keccak256(abi.encodePacked(_NAMESPACE, '.ipfs.', _listId));
+        dataId = keccak256(abi.encodePacked(
+            _namespace,
+            '.ipfs.',
+            _listId
+        ));
 
         /* Validate data id. */
         if (dataId == 0x0) {
@@ -333,14 +339,17 @@ contract ZeroPriceIndex is Owned {
      *
      * NOTE: All trades are made against DAI stablecoin.
      */
-    function tradePriceSummary(
-    ) external view returns (uint[4] summary) {
+    function tradePriceSummary() external view returns (
+        uint[4] summary
+    ) {
         /* Initailze hash. */
         bytes32 hash = 0x0;
 
         /* Set hash. */
         hash = keccak256(abi.encodePacked(
-            _NAMESPACE, '.0GOLD.', _TRADE_PAIR_BASE
+            _namespace,
+            '.0GOLD.',
+            _TRADE_PAIR_BASE
         ));
 
         /* Retrieve value from Zer0net Db. */
@@ -348,7 +357,9 @@ contract ZeroPriceIndex is Owned {
 
         /* Set hash. */
         hash = keccak256(abi.encodePacked(
-            _NAMESPACE, '.0xBTC.', _TRADE_PAIR_BASE
+            _namespace,
+            '.0xBTC.',
+            _TRADE_PAIR_BASE
         ));
 
         /* Retrieve value from Zer0net Db. */
@@ -356,7 +367,9 @@ contract ZeroPriceIndex is Owned {
 
         /* Set hash. */
         hash = keccak256(abi.encodePacked(
-            _NAMESPACE, '.WBTC.', _TRADE_PAIR_BASE
+            _namespace,
+            '.WBTC.',
+            _TRADE_PAIR_BASE
         ));
 
         /* Retrieve value from Zer0net Db. */
@@ -364,7 +377,9 @@ contract ZeroPriceIndex is Owned {
 
         /* Set hash. */
         hash = keccak256(abi.encodePacked(
-            _NAMESPACE, '.WETH.', _TRADE_PAIR_BASE
+            _namespace,
+            '.WETH.',
+            _TRADE_PAIR_BASE
         ));
 
         /* Retrieve value from Zer0net Db. */
@@ -425,14 +440,19 @@ contract ZeroPriceIndex is Owned {
     ) onlyAuthBy0Admin external returns (bool success) {
         /* Calculate data id. */
         bytes32 dataId = keccak256(abi.encodePacked(
-            _NAMESPACE, '.', _token, '.', _TRADE_PAIR_BASE
+            _namespace, '.',
+            _token, '.',
+            _TRADE_PAIR_BASE
         ));
 
         /* Set value in Zer0net Db. */
         _zer0netDb.setUint(dataId, _value);
 
         /* Broadcast event. */
-        emit PriceUpdate(dataId, _value);
+        emit PriceUpdate(
+            dataId,
+            _value
+        );
 
         /* Return success. */
         return true;
@@ -450,14 +470,19 @@ contract ZeroPriceIndex is Owned {
     ) onlyAuthBy0Admin external returns (bool success) {
         /* Calculate data id. */
         bytes32 dataId = keccak256(abi.encodePacked(
-            _NAMESPACE, '.', _token, '.', _tokenId
+            _namespace, '.',
+            _token, '.',
+            _tokenId
         ));
 
         /* Set value in Zer0net Db. */
         _zer0netDb.setUint(dataId, _value);
 
         /* Broadcast event. */
-        emit PriceUpdate(dataId, _value);
+        emit PriceUpdate(
+            dataId,
+            _value
+        );
 
         /* Return success. */
         return true;
@@ -472,17 +497,21 @@ contract ZeroPriceIndex is Owned {
         string _listId,
         bytes _ipfsHash
     ) onlyAuthBy0Admin external returns (bool success) {
-        /* Initailze hash. */
-        bytes32 hash = 0x0;
-
         /* Set hash. */
-        hash = keccak256(abi.encodePacked(_NAMESPACE, '.ipfs.', _listId));
+        bytes32 hash = keccak256(abi.encodePacked(
+            _namespace,
+            '.ipfs.',
+            _listId
+        ));
 
         /* Set value in Zer0net Db. */
         _zer0netDb.setBytes(hash, _ipfsHash);
 
         /* Broadcast event. */
-        emit PriceListUpdate(hash, _ipfsHash);
+        emit PriceListUpdate(
+            hash,
+            _ipfsHash
+        );
 
         /* Return success. */
         return true;
@@ -504,14 +533,19 @@ contract ZeroPriceIndex is Owned {
         for (uint8 i = 0; i < _CORE_TOKENS.length; i++) {
             /* Set data id. */
             bytes32 dataId = keccak256(abi.encodePacked(
-                _NAMESPACE, '.', _CORE_TOKENS[i], '.', _TRADE_PAIR_BASE
+                _namespace, '.',
+                _CORE_TOKENS[i], '.',
+                _TRADE_PAIR_BASE
             ));
 
             /* Set value in Zer0net Db. */
             _zer0netDb.setUint(dataId, _values[i]);
 
             /* Broadcast event. */
-            emit PriceUpdate(dataId, _values[i]);
+            emit PriceUpdate(
+                dataId,
+                _values[i]
+            );
         }
 
         /* Return success. */
@@ -531,17 +565,22 @@ contract ZeroPriceIndex is Owned {
         uint[] _values
     ) onlyAuthBy0Admin external returns (bool success) {
         /* Iterate Core Tokens for updating. */
-        for (uint i = 0; i < _tokens.length; i++) {
+        for (uint8 i = 0; i < _tokens.length; i++) {
             /* Set data id. */
             bytes32 dataId = keccak256(abi.encodePacked(
-                _NAMESPACE, '.', _tokens[i], '.', _tokenIds[i]
+                _namespace, '.',
+                _tokens[i], '.',
+                _tokenIds[i]
             ));
 
             /* Set value in Zer0net Db. */
             _zer0netDb.setUint(dataId, _values[i]);
 
             /* Broadcast event. */
-            emit PriceUpdate(dataId, _values[i]);
+            emit PriceUpdate(
+                dataId,
+                _values[i]
+            );
         }
 
         /* Return success. */
