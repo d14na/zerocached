@@ -32,9 +32,9 @@ pragma solidity ^0.4.25;
  *             growing community of federated nodes.
  *
  *             For more information, please visit:
- *             https://0net.io/zerocache.bit
+ *             https://zerocache.info
  *
- * Version 19.2.21
+ * Version 19.4.19
  *
  * https://d14na.org
  * support@d14na.org
@@ -244,6 +244,18 @@ contract ZeroCache is Owned {
     /* Initialize Zer0net Db contract. */
     Zer0netDbInterface private _zer0netDb;
 
+    /**
+     * Set Namespace
+     *
+     * Provides a "unique" name for generating "unique" data identifiers,
+     * most commonly used as database "key-value" keys.
+     *
+     * NOTE: Use of `namespace` is REQUIRED when generating ANY & ALL
+     *       Zer0netDb keys; in order to prevent ANY accidental or
+     *       malicious SQL-injection vulnerabilities / attacks.
+     */
+    string private _namespace = 'zerocache';
+
     /* Initialize account balances. */
     mapping(address => mapping (address => uint)) private _balances;
 
@@ -271,9 +283,9 @@ contract ZeroCache is Owned {
     );
 
     event Skipped(
+        address token,
         address sender,
         address receiver,
-        address token,
         uint tokens
     );
 
@@ -301,8 +313,16 @@ contract ZeroCache is Owned {
      * Constructor
      */
     constructor() public {
+        /* Initialize Zer0netDb (eternal) storage database contract. */
+        // NOTE We hard-code the address here, since it should never change.
+        // _zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
+        _zer0netDb = Zer0netDbInterface(0x4C2f68bCdEEB88764b1031eC330aD4DF8d6F64D6); // ROPSTEN
+
+        /* Initialize (aname) hash. */
+        bytes32 hash = keccak256(abi.encodePacked('aname.', _namespace));
+
         /* Set predecessor address. */
-        _predecessor = 0xAABFd6953639104bfcc5194f3c7BeA7eb41e2d48;
+        _predecessor = _zer0netDb.getAddress(hash);
 
         /* Verify predecessor address. */
         if (_predecessor != 0x0) {
@@ -312,11 +332,6 @@ contract ZeroCache is Owned {
             /* Set (current) revision number. */
             _revision = lastRevision + 1;
         }
-
-        /* Initialize Zer0netDb (eternal) storage database contract. */
-        // NOTE We hard-code the address here, since it should never change.
-        // zer0netDb = Zer0netDbInterface(0xE865Fe1A1A3b342bF0E2fcB11fF4E3BCe58263af);
-        _zer0netDb = Zer0netDbInterface(0x4C2f68bCdEEB88764b1031eC330aD4DF8d6F64D6); // ROPSTEN
     }
 
     /**
@@ -325,7 +340,7 @@ contract ZeroCache is Owned {
     modifier onlyAuthBy0Admin() {
         /* Verify write access is only permitted to authorized accounts. */
         require(_zer0netDb.getBool(keccak256(
-            abi.encodePacked(msg.sender, '.has.auth.for.zerocache'))) == true);
+            abi.encodePacked(msg.sender, '.has.auth.for.', _namespace))) == true);
 
         _;      // function code is inserted here
     }
@@ -680,12 +695,12 @@ contract ZeroCache is Owned {
      * to the receiver's account.
      */
     function transfer(
-        address _to,
         address _token,
+        address _to,
         uint _tokens
     ) external returns (bool success) {
         return _transfer(
-            msg.sender, _to, _token, _tokens);
+            _token, msg.sender, _to, _tokens);
     }
 
     /**
@@ -755,7 +770,7 @@ contract ZeroCache is Owned {
 
         /* Request token transfer. */
         return _transfer(
-            _from, _to, _token, _tokens);
+            _token, _from, _to, _tokens);
     }
 
     /**
@@ -765,9 +780,9 @@ contract ZeroCache is Owned {
      * to the receiver's account.
      */
     function _transfer(
+        address _token,
         address _from,
         address _to,
-        address _token,
         uint _tokens
     ) private returns (bool success) {
         /* Validate balance. */
@@ -801,11 +816,11 @@ contract ZeroCache is Owned {
      * to multiple receiver accounts.
      */
     function multiTransfer(
-        address[] _to,
         address[] _token,
+        address[] _to,
         uint[] _tokens
     ) external returns (bool success) {
-        return _multiTransfer(msg.sender, _to, _token, _tokens);
+        return _multiTransfer(_token, msg.sender, _to, _tokens);
     }
 
     //----------------------------------------------------------------
@@ -825,9 +840,9 @@ contract ZeroCache is Owned {
      *          addresses. You can monitor the `Skipped` event.
      */
     function _multiTransfer(
+        address[] _token,
         address _from,
         address[] _to,
-        address[] _token,
         uint[] _tokens
     ) private returns (bool success) {
         /* Loop through all receivers. */
@@ -835,20 +850,20 @@ contract ZeroCache is Owned {
             /* Set token. */
             address token = _token[i];
 
-            /* Set token value. */
-            uint tokens = _tokens[i];
-
             /* Set receiver. */
             address to = _to[i];
+
+            /* Set token value. */
+            uint tokens = _tokens[i];
 
             /* Validate receiver address. */
             if (_ownerIsContract(to)) {
                 /* Broadcast event. */
-                emit Skipped(_from, to, token, tokens);
+                emit Skipped(token, _from, to, tokens);
             } else {
                 /* Transfer tokens. */
                 _transfer(
-                    _from, to, token, tokens);
+                    token, _from, to, tokens);
             }
         }
 
@@ -1038,27 +1053,6 @@ contract ZeroCache is Owned {
      */
 
     /**
-     * Get Revision (Number)
-     */
-    function getRevision() public view returns (uint) {
-        return _revision;
-    }
-
-    /**
-     * Get Predecessor (Address)
-     */
-    function getPredecessor() public view returns (address) {
-        return _predecessor;
-    }
-
-    /**
-     * Get Successor (Address)
-     */
-    function getSuccessor() public view returns (address) {
-        return _successor;
-    }
-
-    /**
      * Get the token balance for account `tokenOwner`
      */
     function balanceOf(
@@ -1114,6 +1108,27 @@ contract ZeroCache is Owned {
             /* Add total legacy balance. */
             balance = balance.add(totalLegacyBalance);
         }
+    }
+
+    /**
+     * Get Revision (Number)
+     */
+    function getRevision() public view returns (uint) {
+        return _revision;
+    }
+
+    /**
+     * Get Predecessor (Address)
+     */
+    function getPredecessor() public view returns (address) {
+        return _predecessor;
+    }
+
+    /**
+     * Get Successor (Address)
+     */
+    function getSuccessor() public view returns (address) {
+        return _successor;
     }
 
 
@@ -1333,7 +1348,9 @@ contract ZeroCache is Owned {
      *
      * Converts bytes into type address.
      */
-    function _bytesToAddress(bytes _address) private pure returns (address) {
+    function _bytesToAddress(
+        bytes _address
+    ) private pure returns (address) {
         uint160 m = 0;
         uint160 b = 0;
 
@@ -1344,20 +1361,5 @@ contract ZeroCache is Owned {
         }
 
         return address(m);
-    }
-
-    /**
-     * Transfer Any ERC20 Token
-     *
-     * @notice Owner can transfer out any accidentally sent ERC20 tokens.
-     *
-     * @dev Provides an ERC20 interface, which allows for the recover
-     *      of any accidentally sent ERC20 tokens.
-     */
-    function transferAnyERC20Token(
-        address _tokenAddress,
-        uint _tokens
-    ) public onlyOwner returns (bool success) {
-        return ERC20Interface(_tokenAddress).transfer(owner, _tokens);
     }
 }
