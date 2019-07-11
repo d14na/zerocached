@@ -16,6 +16,10 @@ ___How awesome is that!?___
 
 [0xf2e945Fbcf8C4E3b9eCaA2994773ac432966AcC4](https://ropsten.etherscan.io/address/0xf2e945Fbcf8C4E3b9eCaA2994773ac432966AcC4#code)
 
+##### Kovan
+
+[0xC37B330Cf48D0Fa2d8D369FFD49b13d6b7265edA](https://kovan.etherscan.io/address/0xC37B330Cf48D0Fa2d8D369FFD49b13d6b7265edA#code)
+
 ## It's a Smart Wallet Too
 
 ### HODL
